@@ -1,0 +1,12 @@
+Could not build the config files from D:/Tugas Alif/Semester 5/Matkul Platform/CollabPodAi/node_modules/@solid/community-server/config/default.json
+Error: Error while parsing file "D:/Tugas Alif/Semester 5/Matkul Platform/CollabPodAi/node_modules/@solid/community-server/config/ldp/authorization/webacl.json": Invalid term IRI: file://D:/Tugas Alif/Semester 5/Matkul Platform/CollabPodAi/node_modules/@solid/community-server/config/ldp/authorization/WebAclMetadataCollector
+    at RdfParser.addPathToError (D:\Tugas Alif\Semester 5\Matkul Platform\CollabPodAi\node_modules\componentsjs\lib\rdf\RdfParser.js:85:16)
+    at PassThrough.<anonymous> (D:\Tugas Alif\Semester 5\Matkul Platform\CollabPodAi\node_modules\componentsjs\lib\rdf\RdfParser.js:58:38)
+    at PassThrough.emit (node:events:521:24)
+    at JsonLdParser.<anonymous> (D:\Tugas Alif\Semester 5\Matkul Platform\CollabPodAi\node_modules\rdf-parse\lib\RdfParser.js:60:47)
+    at JsonLdParser.emit (node:events:521:24)
+    at ParsingContext.emitError (D:\Tugas Alif\Semester 5\Matkul Platform\CollabPodAi\node_modules\@comunica\actor-rdf-parse-jsonld\node_modules\jsonld-streaming-parser\lib\ParsingContext.js:235:21)
+    at Util.createVocabOrBaseTerm (D:\Tugas Alif\Semester 5\Matkul Platform\CollabPodAi\node_modules\@comunica\actor-rdf-parse-jsonld\node_modules\jsonld-streaming-parser\lib\Util.js:518:37)
+    at EntryHandlerKeywordType.handle (D:\Tugas Alif\Semester 5\Matkul Platform\CollabPodAi\node_modules\@comunica\actor-rdf-parse-jsonld\node_modules\jsonld-streaming-parser\lib\entryhandler\keyword\EntryHandlerKeywordType.js:36:31)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async JsonLdParser.newOnValueJob (D:\Tugas Alif\Semester 5\Matkul Platform\CollabPodAi\node_modules\@comunica\actor-rdf-parse-jsonld\node_modules\jsonld-streaming-parser\lib\JsonLdParser.js:206:21)

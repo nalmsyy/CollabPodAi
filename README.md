@@ -1,36 +1,116 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CollabPod AI
 
-## Getting Started
+> Aplikasi web kolaborasi tugas dan penelitian kecil untuk kelompok mahasiswa berbasis Solid Pod dan AI terpercaya.
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Gambaran Proyek
+
+CollabPod AI memungkinkan mahasiswa bekerja sama dalam kelompok riset 2–5 orang, menyimpan dokumen dan tugas secara terdesentralisasi pada Solid Pod milik Owner proyek, serta memanfaatkan asistensi Gemini AI dengan kutipan rujukan dokumen yang dapat diverifikasi secara transparan.
+
+Saat ini proyek berada pada **Tahap 2C**: fondasi Tahap 1 (setup, design system, dashboard demo) ditambah login Solid lewat penyedia identitas, tampilan WebID, logout, pembacaan alamat Pod dari profil Solid, serta pembuatan proyek privat di Pod terpilih (metadata RDF + indeks proyek).
+
+---
+
+## Teknologi yang Digunakan
+
+- **Framework**: [Next.js](https://nextjs.org/) (App Router, React 19, TypeScript strict mode)
+- **Styling**: [Tailwind CSS v4](https://tailwindcss.com/) dengan `@tailwindcss/postcss`
+- **Komponen UI**: Fondasi kustom berbasis prinsip [shadcn/ui](https://ui.shadcn.com/) dan `@radix-ui/react-dialog`
+- **Ikon**: [Lucide React](https://lucide.dev/)
+- **Tipografi**: Geist Sans & Geist Mono (paket lokal `geist`)
+- **Penyimpanan Masa Depan**: [Solid Protocol](https://solidproject.org/) (WAC ACL, RDF/Turtle)
+
+---
+
+## Struktur Folder
+
+```text
+├── docs/
+│   ├── project-context.md      # Konsep produk, batas MVP, dan arsitektur Pod & AI
+│   └── design-system.md        # Pedoman visual, warna teal, tipografi, dan aksesibilitas
+├── src/
+│   ├── app/
+│   │   ├── dashboard/
+│   │   │   └── page.tsx        # Halaman utama dashboard demo proyek
+│   │   ├── globals.css         # Variabel token warna dan gaya Tailwind
+│   │   ├── layout.tsx          # Root layout dengan font Geist
+│   │   └── page.tsx            # Redirect otomatis ke /dashboard
+│   ├── components/
+│   │   ├── layout/             # Sidebar, Header, MobileNav
+│   │   ├── projects/           # Card, Filter, Dialog Buat Proyek, Sheet Ringkasan
+│   │   └── ui/                 # Button, Input, Textarea, Badge, Dialog, Sheet, Alert
+│   ├── data/
+│   │   └── demo-projects.ts    # Data awal demo (Penelitian Kualitas Air, dll.)
+│   ├── lib/
+│   │   ├── project-storage.ts  # Abstraksi repositori (IProjectRepository)
+│   │   └── utils.ts            # Helper utility cn()
+│   └── types/
+│       └── project.ts          # Definisi tipe Project, ProjectRole, dsb.
+├── package.json
+└── tsconfig.json
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Cara Instalasi & Menjalankan
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 1. Prasyarat
+- Node.js versi 18.18+ atau 20+ (diuji pada v24.15.0)
+- npm versi 9+
 
-## Learn More
+### 2. Pasang Dependensi
+```bash
+npm install
+```
 
-To learn more about Next.js, take a look at the following resources:
+### 3. Menjalankan Server Pengembangan (Dev)
+```bash
+npm run dev
+```
+Aplikasi akan aktif di [http://localhost:3000](http://localhost:3000) dan mengarahkan otomatis ke `/dashboard`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 4. Build untuk Produksi
+```bash
+npm run build
+npm run start
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 5. Pemeriksaan Kualitas Kode
+```bash
+# TypeScript strict check
+npx tsc --noEmit
 
-## Deploy on Vercel
+# Pemeriksaan linter ESLint
+npm run lint
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Fitur & Interaksi yang Berfungsi pada Tahap 1
+
+- [x] **Pencarian Real-time**: Menyaring daftar proyek berdasarkan nama dan deskripsi.
+- [x] **Filter Tab**: Mengelompokkan proyek berdasarkan tab "Semua", "Milik saya" (Owner), dan "Diikuti" (Editor/Viewer).
+- [x] **Pembuatan Proyek Demo**: Dialog pembuatan proyek baru dengan validasi nama wajib diisi dan pemilihan peran.
+- [x] **Sheet Ringkasan Proyek**: Mengklik kartu proyek membuka panel samping dengan detail arsitektur Solid Pod dan daftar anggota.
+- [x] **Empty State**: Tampilan informatif jika pencarian tidak menemukan hasil atau jika daftar kosong.
+- [x] **Responsif Mobile**: Drawer navigasi dari sisi kiri saat menggunakan perangkat berlayar kecil.
+- [x] **Aksesibilitas Penuh**: Dukungan tombol `Escape` untuk menutup dialog/sheet dan fokus keyboard terlihat jelas.
+- [x] **Login Solid (Tahap 2A)**: Masuk melalui penyedia identitas Solid pilihan pengguna, menampilkan WebID, keluar, dan memulihkan sesi setelah refresh. Callback tetap di `/auth/callback` pada origin aktif.
+- [x] **Penemuan Pod (Tahap 2B)**: Bagian "Pod saya" membaca alamat Pod dari profil Solid dengan `getPodUrlAll(webId, { fetch: session.fetch })`. Satu Pod dipilih otomatis, beberapa Pod bisa dipilih pengguna, hasil kosong memunculkan "Profil ini belum mencantumkan Pod", dan kegagalan permintaan menampilkan "Gagal memuat daftar Pod" dengan tombol "Coba lagi". Pilihan hanya bertahan selama sesi aktif di tab.
+- [x] **Proyek Privat di Pod (Tahap 2C)**: Dialog "Buat proyek" menampilkan Pod tujuan sebelum disimpan, lalu menulis kontainer workspace, ACL privat untuk pemilik (sebelum metadata), `config/project.ttl`, dan referensi ke `project-index.ttl`. Daftar "Proyek saya" dibaca dari indeks Pod, membedakan daftar kosong dari kegagalan baca, dan kosong kembali saat logout atau ganti akun/Pod.
+
+### Struktur Data Proyek di Pod
+
+```text
+{pod}/collabpod/                                   kontainer aplikasi, ACL privat + acl:default pemilik
+{pod}/collabpod/project-index.ttl                  indeks proyek privat milik pengguna
+{pod}/collabpod/projects/{id}/                     workspace proyek (ID stabil)
+{pod}/collabpod/projects/{id}/config/project.ttl   metadata: nama, deskripsi, WebID pemilik, waktu dibuat
+```
+
+ACL hanya ditulis pada kontainer aplikasi dan kontainer proyek; ACL root Pod dan folder lain tidak diubah. Percobaan ulang memakai ID proyek yang sama sehingga tidak membuat duplikat.
+
+> **Pemisahan Mode**: Tanpa sesi Solid, dashboard berjalan dalam mode demo (empat kartu contoh + tombol buat proyek demo). Saat sesi Solid aktif, kartu demo disembunyikan dan dashboard menampilkan WebID, bagian "Pod saya", dan daftar proyek dari indeks Pod terpilih.
+
+> **Catatan Mode Demo**: Seluruh data tersimpan secara lokal di memori peramban dan akan tereset saat halaman dimuat ulang. Pada tahap ini belum ada integrasi server Solid Pod, database terpusat, atau panggilan API Gemini.
