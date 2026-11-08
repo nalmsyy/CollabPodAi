@@ -256,7 +256,6 @@ function DashboardView() {
             {isSolidSession && (
               <SolidProjectsSection
                 onProjectCreated={handleSolidProjectCreated}
-                onSelectProject={(project) => setSelectedProject(project)}
               />
             )}
 

@@ -1,7 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { FolderPlus, HardDrive, Loader2, Plus, RefreshCw, TriangleAlert } from "lucide-react";
+import {
+  FolderPlus,
+  HardDrive,
+  Loader2,
+  Plus,
+  RefreshCw,
+  ShieldAlert,
+  TriangleAlert,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProjectCard } from "@/components/projects/project-card";
 import { CreateSolidProjectDialog } from "@/components/projects/create-solid-project-dialog";
@@ -9,21 +17,25 @@ import { usePodSelection } from "@/components/pods/pod-selection-provider";
 
 import { useSolidSession } from "@/components/auth/solid-session-provider";
 import { getSolidSessionAuth } from "@/lib/solid-session";
-import { SolidPodProjectRepository } from "@/lib/solid-project-repository";
+import {
+  SolidPodProjectRepository,
+  isSolidProjectAccessDenied,
+} from "@/lib/solid-project-repository";
 import { Project } from "@/types/project";
 
 interface SolidProjectsSectionProps {
   onProjectCreated: (project: Project) => void;
-  onSelectProject: (project: Project) => void;
 }
+
+type ReadErrorKind = "access" | "connection";
 
 /**
  * Daftar proyek Solid untuk Pod terpilih, dibaca dari project-index.ttl privat.
- * Daftar kosong dan kegagalan baca dibedakan; daftar dibuang saat Pod berganti.
+ * Daftar kosong, kegagalan akses, dan kegagalan koneksi/server dibedakan;
+ * daftar dibuang saat Pod berganti.
  */
 export function SolidProjectsSection({
   onProjectCreated,
-  onSelectProject,
 }: SolidProjectsSectionProps) {
   const { selectedPodUrl } = usePodSelection();
   const [dialogOpen, setDialogOpen] = React.useState(false);
@@ -67,7 +79,6 @@ export function SolidProjectsSection({
         key={`${selectedPodUrl}#${reloadToken}`}
         podUrl={selectedPodUrl}
         onCreateProject={() => setDialogOpen(true)}
-        onSelectProject={onSelectProject}
       />
 
       <CreateSolidProjectDialog
@@ -84,18 +95,14 @@ export function SolidProjectsSection({
 interface ProjectsForPodProps {
   podUrl: string;
   onCreateProject: () => void;
-  onSelectProject: (project: Project) => void;
 }
 
-function ProjectsForPod({
-  podUrl,
-  onCreateProject,
-  onSelectProject,
-}: ProjectsForPodProps) {
+function ProjectsForPod({ podUrl, onCreateProject }: ProjectsForPodProps) {
   const { webId } = useSolidSession();
   const [phase, setPhase] = React.useState<"loading" | "ready" | "error">(
     "loading"
   );
+  const [errorKind, setErrorKind] = React.useState<ReadErrorKind>("connection");
   const [projects, setProjects] = React.useState<Project[]>([]);
   const [reloadToken, setReloadToken] = React.useState(0);
 
@@ -114,9 +121,12 @@ function ProjectsForPod({
         if (!active) return;
         setProjects(loaded);
         setPhase("ready");
-      } catch {
+      } catch (error) {
         if (!active) return;
         setProjects([]);
+        setErrorKind(
+          isSolidProjectAccessDenied(error) ? "access" : "connection"
+        );
         setPhase("error");
       }
     })();
@@ -128,7 +138,10 @@ function ProjectsForPod({
 
   if (phase === "loading") {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-border bg-card/40 p-6 text-sm text-muted-foreground">
+      <div
+        className="flex items-center gap-2 rounded-xl border border-border bg-card/40 p-6 text-sm text-muted-foreground"
+        role="status"
+      >
         <Loader2 className="h-4 w-4 animate-spin text-primary" />
         Memuat proyek dari indeks Pod…
       </div>
@@ -136,17 +149,28 @@ function ProjectsForPod({
   }
 
   if (phase === "error") {
+    const denied = errorKind === "access";
     return (
-      <div className="flex flex-col items-center justify-center p-10 text-center rounded-xl border border-rose-400/30 bg-rose-500/10">
+      <div
+        className="flex flex-col items-center justify-center p-10 text-center rounded-xl border border-rose-400/30 bg-rose-500/10"
+        role="alert"
+      >
         <div className="w-12 h-12 rounded-full bg-rose-500/15 flex items-center justify-center text-rose-300 mb-3">
-          <TriangleAlert className="w-6 h-6" />
+          {denied ? (
+            <ShieldAlert className="w-6 h-6" />
+          ) : (
+            <TriangleAlert className="w-6 h-6" />
+          )}
         </div>
         <h2 className="text-sm font-semibold text-rose-100">
-          Gagal membaca daftar proyek
+          {denied
+            ? "Akses ke indeks proyek ditolak"
+            : "Gagal membaca daftar proyek"}
         </h2>
         <p className="mt-1 text-xs text-rose-200/80 max-w-md leading-relaxed">
-          Indeks proyek di Pod tidak dapat dibaca. Periksa koneksi dan izin Pod,
-          lalu coba lagi.
+          {denied
+            ? "Server Pod menolak pembacaan indeks proyek. Pastikan Anda masih masuk sebagai pemilik Pod dan izin WAC pada collabpod/ belum berubah."
+            : "Indeks proyek tidak dapat dibaca karena koneksi atau gangguan server. Tidak ada data Pod yang diubah pada percobaan ini."}
         </p>
         <Button
           variant="outline"
@@ -171,11 +195,12 @@ function ProjectsForPod({
           <FolderPlus className="w-6 h-6" />
         </div>
         <h2 className="text-sm font-semibold text-foreground">
-          Belum ada proyek di Pod ini
+          Indeks proyek belum ada atau masih kosong
         </h2>
         <p className="mt-1 text-xs text-muted-foreground max-w-sm leading-relaxed">
-          Indeks proyek kosong. Proyek yang Anda buat akan tersimpan privat di
-          Pod ini dan muncul kembali setelah masuk ulang.
+          Indeks proyek belum dibuat atau belum berisi proyek. Proyek yang Anda
+          buat akan tersimpan privat di Pod ini dan muncul kembali setelah masuk
+          ulang.
         </p>
         <Button variant="primary" size="sm" className="mt-4" onClick={onCreateProject}>
           <Plus className="w-4 h-4" />
@@ -186,13 +211,18 @@ function ProjectsForPod({
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {projects.map((project) => (
-        <ProjectCard
-          key={`${project.podUrl}-${project.id}`}
-          project={project}
-        />
-      ))}
+    <div className="space-y-3">
+      <p role="status" className="text-xs text-emerald-200/80">
+        {projects.length} proyek terbaca dari indeks Pod.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {projects.map((project) => (
+          <ProjectCard
+            key={`${project.podUrl}-${project.id}`}
+            project={project}
+          />
+        ))}
+      </div>
     </div>
   );
 }

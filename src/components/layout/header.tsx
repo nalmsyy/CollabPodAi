@@ -38,10 +38,10 @@ export function Header({ onOpenMobileNav }: HeaderProps) {
           className="hidden sm:inline-flex items-center gap-1.5 py-1 px-2.5 text-xs font-medium"
         >
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-          Tahap 2B: Pod Discovery
+          Tahap 2E: Izin & Kegagalan Pod
         </Badge>
         <div className="text-xs text-muted-foreground hidden lg:block">
-          Solid Pod Architecture • WebID &amp; Pod Discovery
+          Solid Pod Architecture • Private Workspace &amp; WAC
         </div>
       </div>
     </header>
