@@ -36,6 +36,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local solid pod data
+/.data/
+/data/pod-server/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

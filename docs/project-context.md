@@ -80,11 +80,11 @@ CollabPod AI adalah aplikasi kolaborasi tugas dan penelitian kecil untuk kelompo
 | **Autentikasi Solid / WebID** | ✅ Selesai Tahap 2A (masuk/keluar lewat IdP, tampil WebID, sesi dipulihkan setelah refresh) | Penulisan data ke Pod & penegakan role |
 | **Penemuan Pod dari Profil** | ✅ Selesai Tahap 2B (`getPodUrlAll` dengan `session.fetch`, pemilihan Pod dalam sesi aktif) | Pemakaian Pod terpilih untuk proyek & dokumen |
 | **Penyimpanan Proyek Privat** | ✅ Selesai Tahap 2C (`collabpod/projects/{id}/config/project.ttl`, ACL privat pemilik, `project-index.ttl` per pengguna) | Undangan anggota, unggah dokumen, papan tugas, AI |
-| **Detail Proyek Baca-saja** | ✅ Selesai Tahap 2D (kartu membuka `/dashboard/detail/[projectId]`, tetap terbaca setelah refresh, membedakan tidak ditemukan vs akses ditolak) | Edit metadata, anggota, dokumen, tugas, AI |
+| **Detail Proyek & Workspace** | ✅ Selesai Tahap 2D (kartu membuka `/dashboard/detail/[projectId]`, tetap terbaca setelah refresh, membedakan tidak ditemukan vs akses ditolak) | Edit metadata, anggota, tugas, AI |
 | **Ketahanan & Verifikasi Izin Pod** | ✅ Selesai Tahap 2E (`resourceExists` hanya menganggap 404/410 sebagai belum ada; ACL dibaca ulang sebelum metadata ditulis; umpan balik akses vs koneksi dipisahkan; regresi `node:test`) | Uji dengan Pod kedua, pengujian beban, penanganan konflik tulis |
-| **Manajemen Dokumen & Pod Storage**| ⏳ Belum diimplementasikan | Upload berkas PDF/TXT ke container Pod Owner |
-| **Penegakan WAC ACL** | ✅ Sebagian Tahap 2E (ACL privat Owner ditulis lalu diverifikasi baca ulang; role Editor/Viewer belum) | Penulisan file `.acl` untuk Editor dan Viewer |
-| **Ekstraksi Teks & Persetujuan AI**| ⏳ Belum diimplementasikan | Ekstraksi PDF lokal, hashing SHA-256, RDF consent |
+| **Manajemen Dokumen & Pod Storage**| ✅ Selesai Tahap 3A (Upload berkas asli PDF/TXT ke `{workspace}/data/documents/{id}/file.{pdf,txt}`, metadata RDF `metadata.ttl`, unduh dengan `session.fetch`, validasi 5MB/10 berkas, retry tanpa duplikat) | Pratinjau PDF, penghapusan/revisi berkas |
+| **Penegakan WAC ACL** | ✅ Sebagian Tahap 2E & 3A (ACL privat Owner ditulis lalu diverifikasi baca ulang; dokumen mewarisi ACL privat workspace; role Editor/Viewer belum) | Penulisan file `.acl` untuk Editor dan Viewer |
+| **Ekstraksi Teks & Persetujuan AI**| ⏳ Belum diimplementasikan (Dokumen belum disetujui untuk pemrosesan AI) | Ekstraksi PDF lokal, hashing SHA-256 consent binding |
 | **AI Gateway (Gemini API)** | ⏳ Belum diimplementasikan | Next.js Route Handler dengan Google Gen AI SDK |
 | **Papan Tugas Kolaboratif** | ⏳ Belum diimplementasikan | Tugas tim berbasis RDF Turtle |
 

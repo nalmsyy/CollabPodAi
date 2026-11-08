@@ -4,10 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:pod": "community-solid-server -c @css:config/file.json -f .data/community-solid-server -p 3001 -b http://localhost:3001/",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "postinstall": "node scripts/patch-componentsjs.mjs"
   },
   "dependencies": {
     "@inrupt/solid-client": "^4.0.0",

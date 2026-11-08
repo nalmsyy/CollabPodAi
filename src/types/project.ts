@@ -23,6 +23,8 @@ export interface Project {
   metadataUrl?: string;
   /** Pod asal proyek (hanya untuk proyek Solid). */
   podUrl?: string;
+  /** URL kontainer workspace proyek di Pod: {podUrl}/collabpod/projects/{projectId}/ */
+  workspaceUrl?: string;
 }
 
 export type ProjectFilterType = "all" | "mine" | "shared";

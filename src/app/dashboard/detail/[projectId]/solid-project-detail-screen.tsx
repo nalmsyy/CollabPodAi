@@ -9,6 +9,7 @@ import {
   Loader2,
   Lock,
   TriangleAlert,
+  Upload,
 } from "lucide-react";
 import {
   SolidSessionProvider,
@@ -23,10 +24,15 @@ import {
 } from "@/lib/solid-project-repository";
 import { Project } from "@/types/project";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { SolidDocumentRepository } from "@/lib/solid-document-repository";
+import { DocumentList } from "@/components/documents/document-list";
+import { UploadDocumentDialog } from "@/components/documents/upload-document-dialog";
+import { IncompleteProjectDocument, ProjectDocument } from "@/types/document";
 
 type DetailState =
   | { kind: "loading" }
-  | { kind: "ready"; project: Project }
+  | { kind: "ready"; project: Project; fetchImpl: typeof fetch }
   | { kind: "not-found" }
   | { kind: "access-denied" }
   | { kind: "error"; message: string };
@@ -88,19 +94,94 @@ function FallbackState({
   );
 }
 
-function ProjectDetail({ project }: { readonly project: Project }) {
+function ProjectDetail({
+  project,
+  webId,
+  fetchImpl,
+}: {
+  readonly project: Project;
+  readonly webId: string;
+  readonly fetchImpl: typeof fetch;
+}) {
+  const isOwner = project.ownerWebId === webId;
+  const workspaceUrl =
+    project.workspaceUrl ??
+    (project.podUrl ? `${project.podUrl}collabpod/projects/${project.id}/` : "");
+
+  const repository = React.useMemo(() => {
+    if (!workspaceUrl) return null;
+    return new SolidDocumentRepository({
+      workspaceUrl,
+      webId,
+      ownerWebId: project.ownerWebId,
+      fetch: fetchImpl,
+    });
+  }, [workspaceUrl, webId, project.ownerWebId, fetchImpl]);
+
+  const [documents, setDocuments] = React.useState<ProjectDocument[]>([]);
+  const [incompleteDocuments, setIncompleteDocuments] = React.useState<
+    IncompleteProjectDocument[]
+  >([]);
+  const [isLoadingDocs, setIsLoadingDocs] = React.useState(true);
+  const [docsError, setDocsError] = React.useState<unknown | null>(null);
+  const [uploadDialogOpen, setUploadDialogOpen] = React.useState(false);
+
+  const refreshDocuments = React.useCallback(async () => {
+    if (!repository) return;
+    setIsLoadingDocs(true);
+    setDocsError(null);
+    try {
+      const res = await repository.listDocuments();
+      setDocuments(res.documents);
+      setIncompleteDocuments(res.incompleteDocuments);
+    } catch (err) {
+      setDocsError(err);
+    } finally {
+      setIsLoadingDocs(false);
+    }
+  }, [repository]);
+
+  React.useEffect(() => {
+    if (!repository) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await repository.listDocuments();
+        if (cancelled) return;
+        setDocuments(res.documents);
+        setIncompleteDocuments(res.incompleteDocuments);
+        setDocsError(null);
+      } catch (err) {
+        if (cancelled) return;
+        setDocsError(err);
+      } finally {
+        if (!cancelled) {
+          setIsLoadingDocs(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [repository]);
+
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-5 rounded-2xl border border-border bg-card/60 p-5">
+    <div className="mx-auto w-full max-w-3xl space-y-6 rounded-2xl border border-border bg-card/60 p-5 sm:p-6">
       <BackLink />
 
+      {/* Header Proyek */}
       <div className="flex items-start gap-2.5">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
           <Lock className="h-4 w-4" />
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="teal">Proyek Privat / Solid Pod</Badge>
-            <Badge variant="outline">Baca-saja</Badge>
+            <Badge variant="outline" className="text-primary border-primary/30">
+              Penyimpanan Dokumen Aktif
+            </Badge>
           </div>
           <h1 className="mt-2 text-xl font-bold leading-tight break-words text-foreground">
             {project.name}
@@ -118,12 +199,13 @@ function ProjectDetail({ project }: { readonly project: Project }) {
         </div>
       </div>
 
-      <dl className="space-y-4 text-sm">
+      {/* Metadata Proyek */}
+      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm p-4 rounded-xl border border-border bg-card/40">
         <div className="flex items-start gap-2.5">
           <HardDrive className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0">
-            <dt className="text-muted-foreground">Pod asal proyek</dt>
-            <dd className="mt-0.5 block font-mono text-[11px] break-all text-primary sm:text-xs">
+            <dt className="text-muted-foreground text-xs">Pod asal proyek</dt>
+            <dd className="mt-0.5 block font-mono text-[11px] break-all text-primary">
               {project.podUrl}
             </dd>
           </div>
@@ -131,29 +213,92 @@ function ProjectDetail({ project }: { readonly project: Project }) {
         <div className="flex items-start gap-2.5">
           <Lock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0">
-            <dt className="text-muted-foreground">WebID pemilik</dt>
-            <dd className="mt-0.5 block font-mono text-[11px] break-all text-primary sm:text-xs">
+            <dt className="text-muted-foreground text-xs">WebID pemilik</dt>
+            <dd className="mt-0.5 block font-mono text-[11px] break-all text-primary">
               {project.ownerWebId}
             </dd>
           </div>
         </div>
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 sm:col-span-2">
           <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <dt className="text-muted-foreground">Waktu dibuat</dt>
-          <dd className="text-foreground">{project.updatedAt}</dd>
+          <dt className="text-muted-foreground text-xs">Waktu dibuat:</dt>
+          <dd className="text-foreground text-xs">{project.updatedAt}</dd>
         </div>
       </dl>
 
-      <div className="rounded-lg border border-primary/25 bg-primary/10 p-4 text-xs leading-relaxed">
+      {/* Bagian Dokumen Proyek */}
+      <section className="space-y-4 pt-3 border-t border-border">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-semibold text-foreground">
+                Dokumen Proyek
+              </h2>
+              <Badge variant="secondary" className="text-xs font-mono">
+                {documents.length} / 10 berkas
+              </Badge>
+            </div>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Berkas PDF dan TXT tersimpan secara terdesentralisasi di Pod pemilik
+              workspace.
+            </p>
+          </div>
+
+          {isOwner && (
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              disabled={documents.length >= 10}
+              onClick={() => setUploadDialogOpen(true)}
+              className="inline-flex items-center gap-1.5 self-start sm:self-auto shrink-0"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              <span>Unggah Dokumen</span>
+            </Button>
+          )}
+        </div>
+
+        {repository && (
+          <DocumentList
+            repository={repository}
+            documents={documents}
+            incompleteDocuments={incompleteDocuments}
+            isLoading={isLoadingDocs}
+            error={docsError}
+            onRefresh={refreshDocuments}
+            isOwner={isOwner}
+            onOpenUpload={() => setUploadDialogOpen(true)}
+          />
+        )}
+      </section>
+
+      {/* Keterangan Batasan Arsitektur */}
+      <div className="rounded-xl border border-primary/25 bg-primary/10 p-4 text-xs leading-relaxed">
         <span className="block font-semibold text-primary">
-          Detail proyek baca-saja
+          Penyimpanan Dokumen Solid Pod Aktif
         </span>
         <p className="mt-1 text-muted-foreground">
-          Halaman ini hanya membaca metadata dari Pod. Penambahan anggota,
-          unggahan dokumen, papan tugas, dan AI belum tersedia. Akses dibatasi
-          oleh izin WAC pada Pod.
+          Pemilik proyek dapat mengunggah berkas PDF dan TXT ke Pod, melihat
+          daftar dokumen, dan mengunduh berkas asli secara langsung. Izin akses
+          ditegakkan langsung oleh server Pod melalui WAC. Modul kolaborasi
+          anggota tim, papan tugas, dan integrasi AI akan diaktifkan pada tahap
+          selanjutnya.
         </p>
       </div>
+
+      {/* Dialog Unggah Dokumen */}
+      {repository && isOwner && (
+        <UploadDocumentDialog
+          open={uploadDialogOpen}
+          onOpenChange={setUploadDialogOpen}
+          repository={repository}
+          currentDocumentCount={documents.length}
+          onSuccess={() => {
+            refreshDocuments();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -214,7 +359,11 @@ function ProjectDetailView({ projectId }: { readonly projectId: string }) {
           try {
             const result = await repository.openProject(projectId);
             if (cancelled) return;
-            setState({ kind: "ready", project: result.project });
+            setState({
+              kind: "ready",
+              project: result.project,
+              fetchImpl: auth.fetch,
+            });
             return;
           } catch (error) {
             if (cancelled) return;
@@ -269,7 +418,13 @@ function ProjectDetailView({ projectId }: { readonly projectId: string }) {
 
   switch (state.kind) {
     case "ready":
-      return <ProjectDetail project={state.project} />;
+      return (
+        <ProjectDetail
+          project={state.project}
+          webId={webId}
+          fetchImpl={state.fetchImpl}
+        />
+      );
     case "not-found":
       return (
         <FallbackState

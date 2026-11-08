@@ -8,7 +8,7 @@
 
 CollabPod AI memungkinkan mahasiswa bekerja sama dalam kelompok riset 2–5 orang, menyimpan dokumen dan tugas secara terdesentralisasi pada Solid Pod milik Owner proyek, serta memanfaatkan asistensi Gemini AI dengan kutipan rujukan dokumen yang dapat diverifikasi secara transparan.
 
-Saat ini proyek berada pada **Tahap 2E**: fondasi Tahap 1 (setup, design system, dashboard demo) ditambah login Solid, tampilan WebID, logout, pembacaan alamat Pod dari profil Solid, pembuatan proyek privat di Pod terpilih (metadata RDF + indeks proyek), halaman detail baca-saja yang tahan refresh, serta penanganan kegagalan Pod dan verifikasi ACL privat sebelum metadata ditulis.
+Saat ini proyek berada pada **Tahap 3A**: fondasi Tahap 1 dan 2 (setup, design system, dashboard demo, login Solid, penemuan Pod, pembuatan proyek privat) ditambah **penyimpanan dokumen dasar di Solid Pod**. Pemilik proyek (Owner) dapat mengunggah berkas PDF dan TXT asli langsung ke Pod, melihat daftar dokumen, dan mengunduh berkas dengan verifikasi read-back dan pembatasan WAC.
 
 ---
 
@@ -19,7 +19,8 @@ Saat ini proyek berada pada **Tahap 2E**: fondasi Tahap 1 (setup, design system,
 - **Komponen UI**: Fondasi kustom berbasis prinsip [shadcn/ui](https://ui.shadcn.com/) dan `@radix-ui/react-dialog`
 - **Ikon**: [Lucide React](https://lucide.dev/)
 - **Tipografi**: Geist Sans & Geist Mono (paket lokal `geist`)
-- **Penyimpanan Masa Depan**: [Solid Protocol](https://solidproject.org/) (WAC ACL, RDF/Turtle)
+- **Penyimpanan Terdesentralisasi**: [Solid Protocol](https://solidproject.org/) (WAC ACL, RDF/Turtle, Linked Data Platform)
+- **Server Pengembangan**: Community Solid Server (`@solid/community-server`) dengan konfigurasi WAC dan penyimpanan berkas
 
 ---
 
@@ -28,25 +29,39 @@ Saat ini proyek berada pada **Tahap 2E**: fondasi Tahap 1 (setup, design system,
 ```text
 ├── docs/
 │   ├── project-context.md      # Konsep produk, batas MVP, dan arsitektur Pod & AI
-│   └── design-system.md        # Pedoman visual, warna teal, tipografi, dan aksesibilitas
+│   └── design-system.md        # Pedoman visual, warna tema gelap ungu, tipografi, dan aksesibilitas
+├── scripts/
+│   └── patch-componentsjs.mjs  # Patch penanganan path dengan spasi pada Windows untuk Community Solid Server
 ├── src/
 │   ├── app/
 │   │   ├── dashboard/
-│   │   │   └── page.tsx        # Halaman utama dashboard demo proyek
-│   │   ├── globals.css         # Variabel token warna dan gaya Tailwind
-│   │   ├── layout.tsx          # Root layout dengan font Geist
-│   │   └── page.tsx            # Redirect otomatis ke /dashboard
+│   │   │   ├── detail/[projectId]/ # Halaman detail proyek Solid dan repositori dokumen
+│   │   │   └── page.tsx            # Halaman utama dashboard proyek
+│   │   ├── auth/callback/          # Handler callback login Solid OIDC
+│   │   ├── globals.css             # Variabel token warna dan gaya Tailwind
+│   │   ├── layout.tsx              # Root layout dengan font Geist
+│   │   └── page.tsx                # Redirect otomatis ke /dashboard
 │   ├── components/
-│   │   ├── layout/             # Sidebar, Header, MobileNav
-│   │   ├── projects/           # Card, Filter, Dialog Buat Proyek, Sheet Ringkasan
-│   │   └── ui/                 # Button, Input, Textarea, Badge, Dialog, Sheet, Alert
+│   │   ├── auth/                   # Dialog login Solid, panel sesi akun
+│   │   ├── documents/              # DocumentList, UploadDocumentDialog
+│   │   ├── layout/                 # Sidebar, Header, MobileNav
+│   │   ├── pods/                   # PodSection, PodSelectionProvider
+│   │   ├── projects/               # SolidProjectsSection, ProjectCard, ProjectFilter, Dialog
+│   │   └── ui/                     # Button, Input, Textarea, Badge, Dialog, Sheet, Alert
 │   ├── data/
-│   │   └── demo-projects.ts    # Data awal demo (Penelitian Kualitas Air, dll.)
+│   │   └── demo-projects.ts        # Data awal demo lokal
 │   ├── lib/
-│   │   ├── project-storage.ts  # Abstraksi repositori (IProjectRepository)
-│   │   └── utils.ts            # Helper utility cn()
+│   │   ├── solid-document-repository.ts # Repositori dokumen Solid (upload, download, list, hash SHA-256)
+│   │   ├── solid-project-repository.ts  # Repositori proyek Solid (WAC, ACL, index, metadata)
+│   │   ├── solid-session.ts             # Manajemen sesi browser Solid
+│   │   ├── solid-pods.ts                # Penemuan Pod dari profil WebID
+│   │   └── utils.ts                     # Helper utility cn()
 │   └── types/
-│       └── project.ts          # Definisi tipe Project, ProjectRole, dsb.
+│       ├── document.ts             # Definisi tipe ProjectDocument, MIME, validasi
+│       └── project.ts              # Definisi tipe Project, ProjectRole, dsb.
+├── tests/
+│   ├── solid-document-repository.test.mjs # Pengujian unit & regresi repositori dokumen (10 tes)
+│   └── solid-project-repository.test.mjs  # Pengujian unit & regresi repositori proyek (10 tes)
 ├── package.json
 └── tsconfig.json
 ```
@@ -64,20 +79,29 @@ Saat ini proyek berada pada **Tahap 2E**: fondasi Tahap 1 (setup, design system,
 npm install
 ```
 
-### 3. Menjalankan Server Pengembangan (Dev)
+### 3. Menjalankan Server Solid Lokal (CSS)
+```bash
+npm run dev:pod
+```
+Server Solid lokal akan aktif di [http://localhost:3001](http://localhost:3001) dengan penyimpanan berbasis berkas di `.data/community-solid-server/` dan penegakan izin Web Access Control (WAC).
+
+### 4. Menjalankan Server Aplikasi Next.js (Dev)
 ```bash
 npm run dev
 ```
 Aplikasi akan aktif di [http://localhost:3000](http://localhost:3000) dan mengarahkan otomatis ke `/dashboard`.
 
-### 4. Build untuk Produksi
+### 5. Build untuk Produksi
 ```bash
 npm run build
 npm run start
 ```
 
-### 5. Pemeriksaan Kualitas Kode
+### 6. Pengujian & Pemeriksaan Kualitas Kode
 ```bash
+# Menjalankan 20 pengujian unit & regresi
+npm test
+
 # TypeScript strict check
 npx tsc --noEmit
 
@@ -87,7 +111,7 @@ npm run lint
 
 ---
 
-## Fitur & Interaksi yang Berfungsi pada Tahap 1
+## Fitur & Interaksi yang Berfungsi
 
 - [x] **Pencarian Real-time**: Menyaring daftar proyek berdasarkan nama dan deskripsi.
 - [x] **Filter Tab**: Mengelompokkan proyek berdasarkan tab "Semua", "Milik saya" (Owner), dan "Diikuti" (Editor/Viewer).
@@ -98,6 +122,26 @@ npm run lint
 - [x] **Aksesibilitas Penuh**: Dukungan tombol `Escape` untuk menutup dialog/sheet dan fokus keyboard terlihat jelas.
 - [x] **Login Solid (Tahap 2A)**: Masuk melalui penyedia identitas Solid pilihan pengguna, menampilkan WebID, keluar, dan memulihkan sesi setelah refresh. Callback tetap di `/auth/callback` pada origin aktif.
 - [x] **Penemuan Pod (Tahap 2B)**: Bagian "Pod saya" membaca alamat Pod dari profil Solid dengan `getPodUrlAll(webId, { fetch: session.fetch })`. Satu Pod dipilih otomatis, beberapa Pod bisa dipilih pengguna, hasil kosong memunculkan "Profil ini belum mencantumkan Pod", dan kegagalan permintaan menampilkan "Gagal memuat daftar Pod" dengan tombol "Coba lagi". Pilihan hanya bertahan selama sesi aktif di tab.
+- [x] **Proyek Privat di Pod (Tahap 2C)**: Dialog "Buat proyek" menampilkan Pod tujuan sebelum disimpan, lalu menulis kontainer workspace, ACL privat untuk pemilik (sebelum metadata), `config/project.ttl`, dan referensi ke `project-index.ttl`. Daftar "Proyek saya" dibaca dari indeks Pod, membedakan daftar kosong dari kegagalan baca, dan kosong kembali saat logout atau ganti akun/Pod.
+- [x] **Detail Proyek Baca-saja (Tahap 2D)**: Kartu proyek Solid membuka `/dashboard/detail/[projectId]`. Halaman memulihkan sesi setelah refresh, mencocokkan Pod pengguna, menemukan proyek lewat indeks, lalu menampilkan nama, deskripsi, WebID pemilik, waktu dibuat, dan Pod asal. ID yang tidak ada di indeks dan akses yang ditolak server diberi pesan berbeda.
+- [x] **Ketahanan Pod & Verifikasi Izin (Tahap 2E)**: Pemeriksaan keberadaan resource hanya menganggap HTTP 404/410 sebagai "belum ada"; 401/403, 5xx, dan kegagalan jaringan diteruskan sebagai kegagalan sehingga indeks tidak pernah dibuat atau ditimpa secara keliru. Setelah ACL disimpan, ACL dibaca ulang dengan `session.fetch` dan diverifikasi untuk pemilik, publik, agen lain, serta grup lain sebelum metadata dan indeks ditulis.
+- [x] **Penyimpanan Dokumen Dasar di Pod (Tahap 3A)**:
+  - **Upload Berkas Asli**: Pemilik dapat mengunggah berkas PDF dan TXT (maks. 5 MB per berkas, maks. 10 dokumen per proyek).
+  - **Struktur Pod**: Menyimpan berkas biner di `{workspace}/data/documents/{id}/file.{pdf,txt}` dan metadata di `{workspace}/data/documents/{id}/metadata.ttl`.
+  - **Metadata RDF**: Menyimpan ID stabil, nama asli, URL berkas, MIME type, ukuran byte, waktu unggah, WebID pengunggah, dan hash SHA-256.
+  - **Verifikasi Read-back**: Status sukses hanya ditampilkan setelah berkas biner dan metadata RDF diverifikasi terbaca kembali dari Pod.
+  - **Retry Tanpa Duplikat**: Jika proses terputus sebagian, ID dokumen dipertahankan untuk retry tanpa membuat entri ganda di Pod.
+  - **Unduh Dokumen**: Tombol unduh membaca berkas menggunakan `session.fetch` terotentikasi, memicu unduhan browser lewat Blob URL, dan segera membersihkan Blob URL untuk mencegah kebocoran memori.
+  - **Isolasi Entri Belum Lengkap**: Entri yang rusak/tidak lengkap dipisahkan dan tidak dianggap sebagai dokumen valid, serta tidak menyebabkan seluruh daftar proyek menjadi kosong.
+
+### Struktur Data Dokumen di Pod
+
+```text
+{workspace}/data/documents/{id}/file.pdf         # Berkas asli biner PDF (atau file.txt)
+{workspace}/data/documents/{id}/metadata.ttl     # Metadata RDF/Turtle
+```
+
+Izin privat diwarisi langsung dari workspace proyek yang memiliki `acl:default` untuk pemilik, sehingga tidak perlu menulis ulang ACL saat mengunggah dokumen. Dokumen yang diunggah belum mendapatkan persetujuan pemrosesan AI (direncanakan pada tahap berikutnya).
 - [x] **Proyek Privat di Pod (Tahap 2C)**: Dialog "Buat proyek" menampilkan Pod tujuan sebelum disimpan, lalu menulis kontainer workspace, ACL privat untuk pemilik (sebelum metadata), `config/project.ttl`, dan referensi ke `project-index.ttl`. Daftar "Proyek saya" dibaca dari indeks Pod, membedakan daftar kosong dari kegagalan baca, dan kosong kembali saat logout atau ganti akun/Pod.
 - [x] **Detail Proyek Baca-saja (Tahap 2D)**: Kartu proyek Solid membuka `/dashboard/detail/[projectId]`. Halaman memulihkan sesi setelah refresh, mencocokkan Pod pengguna, menemukan proyek lewat indeks, lalu menampilkan nama, deskripsi, WebID pemilik, waktu dibuat, dan Pod asal. ID yang tidak ada di indeks dan akses yang ditolak server diberi pesan berbeda; tidak ada penulisan ke Pod.
 - [x] **Ketahanan Pod & Verifikasi Izin (Tahap 2E)**: Pemeriksaan keberadaan resource hanya menganggap HTTP 404/410 sebagai "belum ada"; 401/403, 5xx, dan kegagalan jaringan diteruskan sebagai kegagalan sehingga indeks tidak pernah dibuat atau ditimpa secara keliru. Setelah ACL disimpan, ACL dibaca ulang dengan `session.fetch` dan diverifikasi untuk pemilik, publik, agen lain, serta grup lain sebelum metadata dan indeks ditulis. Daftar proyek membedakan memuat, indeks kosong, akses ditolak, kegagalan koneksi/server, dan hasil terbaca, dengan tombol "Coba lagi". Regresi dijalankan dengan `npm test` (Node test runner + Pod Solid tiruan).

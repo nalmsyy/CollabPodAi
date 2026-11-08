@@ -477,6 +477,7 @@ export class SolidPodProjectRepository implements IProjectRepository {
       isDemo: false,
       metadataUrl: metadata.metadataUrl,
       podUrl: this.podUrl,
+      workspaceUrl: this.projectContainerUrl(metadata.projectId),
     };
   }
 
