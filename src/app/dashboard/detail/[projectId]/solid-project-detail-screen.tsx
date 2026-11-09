@@ -31,6 +31,7 @@ import { DocumentList } from "@/components/documents/document-list";
 import { UploadDocumentDialog } from "@/components/documents/upload-document-dialog";
 import { IncompleteProjectDocument, ProjectDocument } from "@/types/document";
 import { MembersSection } from "@/components/members/members-section";
+import { AskAISection } from "@/components/AskAISection";
 
 type DetailState =
   | { kind: "loading" }
@@ -286,6 +287,15 @@ function ProjectDetail({
         )}
       </section>
 
+      {/* Tanya jawab dokumen (retrieval BM25, belum memanggil LLM) */}
+      {repository && (
+        <AskAISection
+          repository={repository}
+          projectId={project.id}
+          documents={documents}
+        />
+      )}
+
       {/* Anggota & pengaturan: hanya untuk Owner */}
       {isOwner && repository && (
         <MembersSection
@@ -304,8 +314,9 @@ function ProjectDetail({
           Owner mengelola anggota dan kebijakan AI, Editor dapat mengunggah serta
           menghapus dokumen, dan Viewer hanya membaca. Teks PDF/TXT diekstrak di
           peramban dengan pdf.js, sedangkan izin akses ditegakkan langsung oleh
-          server Pod melalui WAC. Fitur tanya-jawab AI belum diaktifkan pada tahap
-          ini.
+          server Pod melalui WAC. Pencarian konteks (RAG) sudah aktif dan hanya
+          memakai dokumen yang disetujui Owner; pengiriman konteks ke model
+          bahasa belum diaktifkan.
         </p>
       </div>
 
