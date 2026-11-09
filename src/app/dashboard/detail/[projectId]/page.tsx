@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { SolidProjectDetailScreen } from "./solid-project-detail-screen";
 
 /**
@@ -26,8 +26,11 @@ export default function SolidProjectDetailPage() {
 
 function ProjectDetailRoute() {
   const params = useParams<{ projectId?: string }>();
+  const searchParams = useSearchParams();
   const projectId =
     typeof params?.projectId === "string" ? params.projectId : "";
+  // Tautan undangan dari Owner menyertakan Pod pemilik proyek.
+  const podHint = searchParams.get("pod") ?? undefined;
 
   if (!projectId) {
     return (
@@ -37,5 +40,11 @@ function ProjectDetailRoute() {
     );
   }
 
-  return <SolidProjectDetailScreen key={projectId} projectId={projectId} />;
+  return (
+    <SolidProjectDetailScreen
+      key={`${projectId}#${podHint ?? ""}`}
+      projectId={projectId}
+      podHint={podHint}
+    />
+  );
 }

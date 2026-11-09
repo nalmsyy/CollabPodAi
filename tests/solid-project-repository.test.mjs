@@ -261,7 +261,28 @@ for (const aclPolicy of ["public", "drop"]) {
   });
 }
 
-test("retry dengan ID sama tidak menggandakan entri indeks", async () => {
+test("jumlah dokumen proyek dibaca dari kontainer data/documents", async () => {
+  const pod = createFakePod();
+  const repository = repositoryFor(pod);
+  await repository.createProject(PROJECT_INPUT);
+
+  const documentsUrl = `${POD_URL}collabpod/projects/prj-test-1/data/documents/`;
+  pod.resources.set(documentsUrl, {
+    type: "text/turtle",
+    body: `@prefix ldp: <http://www.w3.org/ns/ldp#>.
+<${documentsUrl}> a ldp:BasicContainer;
+  ldp:contains <${documentsUrl}doc-1/>, <${documentsUrl}doc-2/>.`,
+  });
+
+  const projects = await repository.listProjects();
+  assert.equal(projects.length, 1);
+  assert.equal(projects[0].documentCount, 2);
+
+  const opened = await repository.openProject("prj-test-1");
+  assert.equal(opened.project.documentCount, 2);
+});
+
+ test("retry dengan ID sama tidak menggandakan entri indeks", async () => {
   const pod = createFakePod();
   const repository = repositoryFor(pod);
 

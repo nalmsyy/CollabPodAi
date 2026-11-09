@@ -21,14 +21,16 @@ import {
   SolidPodProjectRepository,
   SolidProjectAccessDeniedError,
   SolidProjectNotFoundError,
+  normalizePodUrl,
 } from "@/lib/solid-project-repository";
-import { Project } from "@/types/project";
-import { Badge } from "@/components/ui/badge";
+import { Project, ProjectRole } from "@/types/project";
+import { Badge, RoleBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SolidDocumentRepository } from "@/lib/solid-document-repository";
 import { DocumentList } from "@/components/documents/document-list";
 import { UploadDocumentDialog } from "@/components/documents/upload-document-dialog";
 import { IncompleteProjectDocument, ProjectDocument } from "@/types/document";
+import { MembersSection } from "@/components/members/members-section";
 
 type DetailState =
   | { kind: "loading" }
@@ -103,7 +105,10 @@ function ProjectDetail({
   readonly webId: string;
   readonly fetchImpl: typeof fetch;
 }) {
-  const isOwner = project.ownerWebId === webId;
+  // Peran berasal dari metadata + members.ttl di Pod, bukan dari tebakan klien.
+  const role: ProjectRole = project.currentUserRole;
+  const isOwner = role === "Owner";
+  const canWriteDocuments = role === "Owner" || role === "Editor";
   const workspaceUrl =
     project.workspaceUrl ??
     (project.podUrl ? `${project.podUrl}collabpod/projects/${project.id}/` : "");
@@ -114,9 +119,10 @@ function ProjectDetail({
       workspaceUrl,
       webId,
       ownerWebId: project.ownerWebId,
+      currentUserRole: role,
       fetch: fetchImpl,
     });
-  }, [workspaceUrl, webId, project.ownerWebId, fetchImpl]);
+  }, [workspaceUrl, webId, project.ownerWebId, role, fetchImpl]);
 
   const [documents, setDocuments] = React.useState<ProjectDocument[]>([]);
   const [incompleteDocuments, setIncompleteDocuments] = React.useState<
@@ -182,6 +188,10 @@ function ProjectDetail({
             <Badge variant="outline" className="text-primary border-primary/30">
               Penyimpanan Dokumen Aktif
             </Badge>
+            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+              Peran Anda:
+              <RoleBadge role={role} />
+            </span>
           </div>
           <h1 className="mt-2 text-xl font-bold leading-tight break-words text-foreground">
             {project.name}
@@ -239,12 +249,13 @@ function ProjectDetail({
               </Badge>
             </div>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Berkas PDF dan TXT tersimpan secara terdesentralisasi di Pod pemilik
-              workspace.
+              Berkas PDF dan TXT tersimpan di Pod pemilik workspace. Klik dokumen
+              untuk melihat teksnya dan tandai &ldquo;Setujui untuk AI&rdquo; agar
+              bisa dipakai sebagai konteks.
             </p>
           </div>
 
-          {isOwner && (
+          {canWriteDocuments && (
             <Button
               type="button"
               variant="primary"
@@ -267,11 +278,22 @@ function ProjectDetail({
             isLoading={isLoadingDocs}
             error={docsError}
             onRefresh={refreshDocuments}
-            isOwner={isOwner}
+            canUpload={canWriteDocuments}
+            canDelete={canWriteDocuments}
+            canApprove={isOwner}
             onOpenUpload={() => setUploadDialogOpen(true)}
           />
         )}
       </section>
+
+      {/* Anggota & pengaturan: hanya untuk Owner */}
+      {isOwner && repository && (
+        <MembersSection
+          project={project}
+          workspaceUrl={workspaceUrl}
+          fetchImpl={fetchImpl}
+        />
+      )}
 
       {/* Keterangan Batasan Arsitektur */}
       <div className="rounded-xl border border-primary/25 bg-primary/10 p-4 text-xs leading-relaxed">
@@ -279,16 +301,16 @@ function ProjectDetail({
           Penyimpanan Dokumen Solid Pod Aktif
         </span>
         <p className="mt-1 text-muted-foreground">
-          Pemilik proyek dapat mengunggah berkas PDF dan TXT ke Pod, melihat
-          daftar dokumen, dan mengunduh berkas asli secara langsung. Izin akses
-          ditegakkan langsung oleh server Pod melalui WAC. Modul kolaborasi
-          anggota tim, papan tugas, dan integrasi AI akan diaktifkan pada tahap
-          selanjutnya.
+          Owner mengelola anggota dan kebijakan AI, Editor dapat mengunggah serta
+          menghapus dokumen, dan Viewer hanya membaca. Teks PDF/TXT diekstrak di
+          peramban dengan pdf.js, sedangkan izin akses ditegakkan langsung oleh
+          server Pod melalui WAC. Fitur tanya-jawab AI belum diaktifkan pada tahap
+          ini.
         </p>
       </div>
 
       {/* Dialog Unggah Dokumen */}
-      {repository && isOwner && (
+      {repository && canWriteDocuments && (
         <UploadDocumentDialog
           open={uploadDialogOpen}
           onOpenChange={setUploadDialogOpen}
@@ -310,17 +332,50 @@ function ProjectDetail({
  */
 export function SolidProjectDetailScreen({
   projectId,
+  podHint,
 }: {
   readonly projectId: string;
+  /** Pod pemilik proyek dari tautan undangan (?pod=...), untuk anggota. */
+  readonly podHint?: string;
 }) {
   return (
     <SolidSessionProvider>
-      <ProjectDetailView projectId={projectId} />
+      <ProjectDetailView projectId={projectId} podHint={podHint} />
     </SolidSessionProvider>
   );
 }
 
-function ProjectDetailView({ projectId }: { readonly projectId: string }) {
+/**
+ * Baca proyek lewat indeks Pod; bila tidak tercatat di sana (mis. anggota
+ * membuka proyek milik orang lain), baca metadata langsung dari Pod tersebut.
+ * Server Pod tetap menolak pembacaan bila WebID tidak punya izin.
+ */
+async function openProjectWithFallback(
+  repository: SolidPodProjectRepository,
+  projectId: string
+) {
+  try {
+    return await repository.openProject(projectId);
+  } catch (error) {
+    // Indeks Pod pemilik bersifat privat bagi anggota, jadi penolakan indeks
+    // juga perlu dicoba lewat metadata langsung (yang boleh dibaca anggota).
+    if (
+      error instanceof SolidProjectNotFoundError ||
+      error instanceof SolidProjectAccessDeniedError
+    ) {
+      return repository.openProjectDirect(projectId);
+    }
+    throw error;
+  }
+}
+
+function ProjectDetailView({
+  projectId,
+  podHint,
+}: {
+  readonly projectId: string;
+  readonly podHint?: string;
+}) {
   const { status, webId } = useSolidSession();
   const [state, setState] = React.useState<DetailState>({ kind: "loading" });
 
@@ -349,7 +404,19 @@ function ProjectDetailView({ projectId }: { readonly projectId: string }) {
         let accessDenied = false;
         let failure: unknown = null;
 
-        for (const podUrl of podUrls) {
+        // Pod dari tautan undangan dicoba lebih dulu: anggota membuka proyek
+        // yang berada di Pod pemilik, bukan di indeks Pod miliknya sendiri.
+        const hintedPod = podHint ? normalizePodUrl(podHint) : null;
+        const candidatePods = hintedPod
+          ? [
+              hintedPod,
+              ...podUrls.filter(
+                (podUrl) => normalizePodUrl(podUrl) !== hintedPod
+              ),
+            ]
+          : podUrls;
+
+        for (const podUrl of candidatePods) {
           const repository = new SolidPodProjectRepository({
             podUrl,
             webId: auth.webId,
@@ -357,7 +424,7 @@ function ProjectDetailView({ projectId }: { readonly projectId: string }) {
           });
 
           try {
-            const result = await repository.openProject(projectId);
+            const result = await openProjectWithFallback(repository, projectId);
             if (cancelled) return;
             setState({
               kind: "ready",
@@ -401,7 +468,7 @@ function ProjectDetailView({ projectId }: { readonly projectId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [projectId, status, webId]);
+  }, [projectId, podHint, status, webId]);
 
   if (status === "restoring") {
     return <LoadingState label="Memulihkan sesi Solid…" />;

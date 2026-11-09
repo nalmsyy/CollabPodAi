@@ -2,6 +2,12 @@
 
 import type { IProjectRepository } from "@/lib/project-storage";
 import type { CreateProjectInput, Project } from "@/types/project";
+import {
+  readProjectMembers,
+  resolveMemberRole,
+  toProjectMember,
+  type StoredProjectMember,
+} from "./solid-acl.ts";
 
 /**
  * Repositori proyek Solid: menulis workspace proyek privat ke Pod terpilih.
@@ -15,6 +21,7 @@ import type { CreateProjectInput, Project } from "@/types/project";
 
 const CPD = "https://collabpod.ai/ns#";
 const RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+const LDP_CONTAINS = "http://www.w3.org/ns/ldp#contains";
 
 const COLLABPOD_SEGMENT = "collabpod";
 const PROJECTS_SEGMENT = "projects";
@@ -235,8 +242,63 @@ export class SolidPodProjectRepository implements IProjectRepository {
       throw error;
     }
 
+    return this.buildOpenResult(metadata);
+  }
+
+  /**
+   * Buka proyek langsung dari URL metadata-nya, tanpa memeriksa indeks Pod
+   * pengguna. Dipakai anggota Editor/Viewer yang proyeknya berada di Pod
+   * pemilik: indeks Pod mereka sendiri tidak memuat proyek tersebut.
+   * Server Pod tetap menegakkan WAC, sehingga metadata hanya terbaca bila
+   * pengguna memang diberi akses.
+   */
+  async openProjectDirect(projectId: string): Promise<{
+    project: Project;
+    metadataUrl: string;
+    podUrl: string;
+  }> {
+    const metadataUrl = this.metadataUrlFor(projectId);
+
+    let metadata: ProjectMetadata;
+    try {
+      metadata = await this.readProjectMetadata(metadataUrl);
+    } catch (error) {
+      const status = httpStatusOf(error);
+      if (status === 401 || status === 403) {
+        throw new SolidProjectAccessDeniedError(projectId, metadataUrl, status);
+      }
+      if (status === 404 || status === 410) {
+        throw new SolidProjectNotFoundError(projectId);
+      }
+      throw error;
+    }
+
+    return this.buildOpenResult(metadata);
+  }
+
+  /** Susun hasil pembukaan proyek, termasuk peran pengguna dari members.ttl. */
+  private async buildOpenResult(metadata: ProjectMetadata): Promise<{
+    project: Project;
+    metadataUrl: string;
+    podUrl: string;
+  }> {
+    let members: StoredProjectMember[] = [];
+    try {
+      members = await readProjectMembers({
+        workspaceUrl: this.projectContainerUrl(metadata.projectId),
+        fetch: this.fetchImpl,
+      });
+    } catch {
+      // Daftar anggota bersifat pelengkap: kegagalan membacanya tidak boleh
+      // menggagalkan pembukaan proyek. Peran non-pemilik jatuh ke Viewer.
+      members = [];
+    }
+
+    const project = this.toProject(metadata, members);
+    project.documentCount = await this.countDocuments(metadata.projectId);
+
     return {
-      project: this.toProject(metadata),
+      project,
       metadataUrl: metadata.metadataUrl,
       podUrl: this.podUrl,
     };
@@ -256,6 +318,27 @@ export class SolidPodProjectRepository implements IProjectRepository {
       CONFIG_SEGMENT,
       METADATA_FILE
     );
+  }
+
+  /**
+   * Hitung dokumen yang tersimpan di `data/documents/` proyek.
+   * Setiap dokumen adalah satu sub-kontainer; kegagalan baca (mis. kontainer
+   * belum ada atau akses ditolak) menghasilkan 0 tanpa menggagalkan daftar.
+   */
+  private async countDocuments(projectId: string): Promise<number> {
+    const { getSolidDataset, getThing, getUrlAll } = await this.solid();
+    const documentsUrl = `${this.projectContainerUrl(projectId)}data/documents/`;
+
+    try {
+      const dataset = await getSolidDataset(documentsUrl, {
+        fetch: this.fetchImpl,
+      });
+      const thing = getThing(dataset, documentsUrl);
+      const children = thing ? getUrlAll(thing, LDP_CONTAINS) : [];
+      return children.filter((childUrl) => childUrl.endsWith("/")).length;
+    } catch {
+      return 0;
+    }
   }
 
   private projectContainerUrl(projectId: string): string {
@@ -285,11 +368,14 @@ export class SolidPodProjectRepository implements IProjectRepository {
     const indexThing = getThing(indexDataset, `${this.indexUrl}#index`);
     const metadataUrls = indexThing ? getUrlAll(indexThing, `${CPD}project`) : [];
 
-    const projects: Project[] = [];
-    for (const metadataUrl of metadataUrls) {
-      const metadata = await this.readProjectMetadata(metadataUrl);
-      projects.push(this.toProject(metadata));
-    }
+    const projects = await Promise.all(
+      metadataUrls.map(async (metadataUrl) => {
+        const metadata = await this.readProjectMetadata(metadataUrl);
+        const project = this.toProject(metadata);
+        project.documentCount = await this.countDocuments(metadata.projectId);
+        return project;
+      })
+    );
 
     return projects.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
   }
@@ -453,15 +539,21 @@ export class SolidPodProjectRepository implements IProjectRepository {
     };
   }
 
-  private toProject(metadata: ProjectMetadata): Project {
+  private toProject(
+    metadata: ProjectMetadata,
+    storedMembers: readonly StoredProjectMember[] = []
+  ): Project {
     const ownerName = ownerNameFromWebId(metadata.ownerWebId);
-    const isOwner = metadata.ownerWebId === this.webId;
 
     return {
       id: metadata.projectId,
       name: metadata.name,
       description: metadata.description || "Tidak ada deskripsi proyek.",
-      currentUserRole: isOwner ? "Owner" : "Viewer",
+      currentUserRole: resolveMemberRole(
+        this.webId,
+        metadata.ownerWebId,
+        storedMembers
+      ),
       ownerName,
       ownerWebId: metadata.ownerWebId,
       members: [
@@ -471,6 +563,9 @@ export class SolidPodProjectRepository implements IProjectRepository {
           role: "Owner",
           webId: metadata.ownerWebId,
         },
+        ...storedMembers
+          .filter((member) => member.webId !== metadata.ownerWebId)
+          .map(toProjectMember),
       ],
       updatedAt: formatCreatedAt(metadata.createdAt),
       documentCount: 0,
@@ -726,8 +821,15 @@ function httpStatusOf(error: unknown): number | undefined {
 function ownerNameFromWebId(webId: string): string {
   try {
     const url = new URL(webId);
-    const pathSegment = url.pathname.split("/").filter(Boolean)[0];
-    return pathSegment ?? url.hostname;
+    // WebID standar berakhiran /<nama>/profile/card#me; segmen "profile"
+    // bukan nama pengguna, jadi cari segmen yang bermakna.
+    const generic = new Set(["profile", "card", "me"]);
+    const candidate = url.pathname
+      .split("/")
+      .filter(Boolean)
+      .reverse()
+      .find((segment) => !generic.has(segment.toLowerCase()));
+    return candidate ?? url.hostname;
   } catch {
     return "Pemilik Pod";
   }

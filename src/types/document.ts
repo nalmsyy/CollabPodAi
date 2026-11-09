@@ -26,6 +26,8 @@ export interface ProjectDocument {
   uploaderWebId: string;
   /** Hash SHA-256 dari konten berkas. */
   sha256: string;
+  /** Pemilik sudah menyetujui dokumen ini dipakai sebagai konteks AI. */
+  aiApproved: boolean;
   /** Status kelengkapan berkas dan metadata. */
   isComplete: true;
 }

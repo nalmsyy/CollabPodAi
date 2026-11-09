@@ -27,6 +27,7 @@ import {
   formatBytes,
   validateDocumentFile,
   describeSolidDocumentError,
+  isSolidDocumentAccessDenied,
 } from "@/lib/solid-document-repository";
 import { ProjectDocument } from "@/types/document";
 
@@ -126,8 +127,14 @@ export function UploadDocumentDialog({
         handleOpenChange(false);
       }, 1500);
     } catch (err) {
-      const desc = describeSolidDocumentError(err);
-      setUploadError(`${desc.stepLabel} ${desc.message}`);
+      if (isSolidDocumentAccessDenied(err)) {
+        setUploadError(
+          "Akses Ditolak: Anda tidak memiliki izin untuk mengunggah dokumen ke proyek ini."
+        );
+      } else {
+        const desc = describeSolidDocumentError(err);
+        setUploadError(`${desc.stepLabel} ${desc.message}`);
+      }
       // stableDocId TIDAK diubah, sehingga jika pengguna menekan Coba Lagi,
       // upload akan menggunakan ID yang sama dan menimpa/memperbaiki entri tanpa membuat duplikat.
     } finally {

@@ -7,6 +7,8 @@ import type {
   IncompleteProjectDocument,
   ProjectDocument,
 } from "@/types/document";
+import type { ProjectRole } from "@/types/project";
+import type { SolidDataset } from "@inrupt/solid-client";
 
 export const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 export const MAX_DOCUMENTS_PER_PROJECT = 10;
@@ -37,7 +39,9 @@ export type SolidDocumentStep =
   | "write-metadata"
   | "verify-readback"
   | "list-documents"
-  | "download-binary";
+  | "download-binary"
+  | "update-approval"
+  | "delete-document";
 
 export const SOLID_DOCUMENT_STEP_LABEL: Record<SolidDocumentStep, string> = {
   "validate-file": "memvalidasi berkas dokumen",
@@ -47,6 +51,8 @@ export const SOLID_DOCUMENT_STEP_LABEL: Record<SolidDocumentStep, string> = {
   "verify-readback": "memverifikasi pembacaan ulang dokumen",
   "list-documents": "membaca daftar dokumen dari Pod",
   "download-binary": "mengunduh berkas dari Pod",
+  "update-approval": "menyimpan status persetujuan AI",
+  "delete-document": "menghapus dokumen dari Pod",
 };
 
 export class SolidDocumentError extends Error {
@@ -103,14 +109,40 @@ export function describeSolidDocumentError(error: unknown): {
           : null;
     return {
       stepLabel: `Gagal ${SOLID_DOCUMENT_STEP_LABEL[error.step]}.`,
-      message: detail?.trim() || error.message,
+      message: summarizeErrorDetail(detail) || error.message,
     };
   }
 
   return {
     stepLabel: "Operasi dokumen di Pod gagal.",
-    message: error instanceof Error ? error.message : "Terjadi kesalahan tak terduga.",
+    message: summarizeErrorDetail(
+      error instanceof Error ? error.message : null
+    ) || "Terjadi kesalahan tak terduga.",
   };
+}
+
+/**
+ * Pesan galat dari Solid client bisa memuat dump dataset yang sangat panjang.
+ * Ambil paragraf pertama dan batasi panjangnya agar bisa dibaca di dialog.
+ */
+function summarizeErrorDetail(detail: string | null): string {
+  if (!detail) return "";
+  const firstBlock = detail.split(/\n\s*\n/)[0] ?? "";
+  const singleLine = firstBlock.replace(/\s+/g, " ").trim();
+  if (singleLine.length <= 240) return singleLine;
+  return `${singleLine.slice(0, 237)}...`;
+}
+
+interface DocumentMetadataFields {
+  documentId: string;
+  name: string;
+  fileUrl: string;
+  mimeType: DocumentMimeType;
+  sizeBytes: number;
+  uploadedAt: string;
+  uploaderWebId: string;
+  sha256: string;
+  aiApproved: boolean;
 }
 
 export interface SolidDocumentContext {
@@ -120,6 +152,12 @@ export interface SolidDocumentContext {
   webId: string;
   /** WebID pemilik proyek */
   ownerWebId: string;
+  /**
+   * Peran pengguna aktif pada proyek (dari members.ttl). Bila tidak diisi,
+   * pemilik dianggap Owner dan pengguna lain Viewer — server Pod tetap
+   * menjadi penentu akhir lewat WAC.
+   */
+  currentUserRole?: ProjectRole;
   /** `session.fetch` dari sesi Solid aktif */
   fetch: typeof fetch;
   /** Factory ID dokumen stabil */
@@ -246,6 +284,7 @@ export class SolidDocumentRepository {
   private readonly workspaceUrl: string;
   private readonly webId: string;
   private readonly ownerWebId: string;
+  private readonly currentUserRole: ProjectRole;
   private readonly fetchImpl: typeof fetch;
   private readonly idFactory: () => string;
   private readonly solidClient: SolidClient | null;
@@ -254,6 +293,9 @@ export class SolidDocumentRepository {
     this.workspaceUrl = normalizeContainerUrl(context.workspaceUrl);
     this.webId = context.webId;
     this.ownerWebId = context.ownerWebId;
+    this.currentUserRole =
+      context.currentUserRole ??
+      (context.webId === context.ownerWebId ? "Owner" : "Viewer");
     this.fetchImpl = context.fetch;
     this.idFactory = context.idFactory ?? createDocumentId;
     this.solidClient = context.client ?? null;
@@ -261,6 +303,11 @@ export class SolidDocumentRepository {
 
   private solid(): SolidClient | Promise<SolidClient> {
     return this.solidClient ?? loadSolidClient();
+  }
+
+  /** Owner dan Editor boleh mengunggah/menghapus; Viewer hanya membaca. */
+  private canWriteDocuments(): boolean {
+    return this.currentUserRole !== "Viewer";
   }
 
   /** URL kontainer data dokumen: {workspace}data/documents/ */
@@ -347,7 +394,8 @@ export class SolidDocumentRepository {
           continue;
         }
 
-        const { getStringNoLocale, getUrl, getDatetime } = await this.solid();
+        const { getStringNoLocale, getUrl, getDatetime, getBoolean } =
+          await this.solid();
 
         const id = getStringNoLocale(docThing, `${CPD}id`) ?? docId;
         const name = getStringNoLocale(docThing, `${CPD}name`) ?? docId;
@@ -364,6 +412,7 @@ export class SolidDocumentRepository {
         const uploaderWebId =
           getUrl(docThing, `${CPD}uploader`) ?? this.ownerWebId;
         const sha256 = getStringNoLocale(docThing, `${CPD}sha256`) ?? "";
+        const aiApproved = getBoolean(docThing, `${CPD}aiApproved`) ?? false;
 
         if (!fileUrl) {
           incompleteDocuments.push({
@@ -398,6 +447,7 @@ export class SolidDocumentRepository {
           uploadedAt,
           uploaderWebId,
           sha256,
+          aiApproved,
           isComplete: true,
         });
       } catch (err) {
@@ -436,8 +486,8 @@ export class SolidDocumentRepository {
     file: { name: string; size: number; type?: string; arrayBuffer: () => Promise<ArrayBuffer> },
     options?: { documentId?: string }
   ): Promise<ProjectDocument> {
-    // 1. Verifikasi hak Owner
-    if (this.webId !== this.ownerWebId) {
+    // 1. Viewer tidak boleh menulis; Editor dan Owner boleh.
+    if (!this.canWriteDocuments()) {
       throw new SolidDocumentAccessDeniedError(this.workspaceUrl, 403);
     }
 
@@ -500,33 +550,18 @@ export class SolidDocumentRepository {
 
     // 6. Tulis metadata RDF (metadata.ttl)
     await this.runStep("write-metadata", async () => {
-      const {
-        createSolidDataset,
-        createThing,
-        setThing,
-        setUrl,
-        setStringNoLocale,
-        setDatetime,
-        saveSolidDatasetAt,
-      } = await this.solid();
-
-      let thing = createThing({ name: "document" });
-      thing = setUrl(thing, RDF_TYPE, `${CPD}Document`);
-      thing = setStringNoLocale(thing, `${CPD}id`, documentId);
-      thing = setStringNoLocale(thing, `${CPD}name`, file.name);
-      thing = setUrl(thing, `${CPD}fileUrl`, fileUrl);
-      thing = setStringNoLocale(thing, `${CPD}mimeType`, mimeType);
-      thing = setStringNoLocale(thing, `${CPD}sizeBytes`, String(file.size));
-      thing = setDatetime(thing, `${CPD}uploadedAt`, new Date(uploadedAt));
-      thing = setUrl(thing, `${CPD}uploader`, this.webId);
-      thing = setStringNoLocale(thing, `${CPD}sha256`, sha256);
-
-      let dataset = createSolidDataset();
-      dataset = setThing(dataset, thing);
-
-      await saveSolidDatasetAt(metadataUrl, dataset, {
-        fetch: this.fetchImpl,
+      const dataset = await this.buildMetadataDataset(metadataUrl, {
+        documentId,
+        name: file.name,
+        fileUrl,
+        mimeType,
+        sizeBytes: file.size,
+        uploadedAt,
+        uploaderWebId: this.webId,
+        sha256,
+        aiApproved: false,
       });
+      await this.writeDatasetAt(metadataUrl, dataset);
     });
 
     // 7. Verifikasi pembacaan ulang (read-back)
@@ -546,9 +581,29 @@ export class SolidDocumentRepository {
         throw new Error("Verifikasi nama berkas pada metadata tidak cocok.");
       }
 
-      const fileExists = await this.verifyFileExists(fileUrl);
-      if (!fileExists) {
-        throw new Error("Berkas biner tidak dapat dibaca kembali dari Pod.");
+      // Verifikasi memakai GET (bukan HEAD) karena sebagian server Solid
+      // membatasi HEAD, dan baca ulang sekaligus memastikan isi berkas utuh.
+      const readback = await this.readBackBinary(fileUrl);
+      if (!readback.ok) {
+        throw new Error(
+          `Berkas biner tidak dapat dibaca kembali dari Pod (HTTP ${readback.status}).`
+        );
+      }
+
+      const readbackBytes = await readback.arrayBuffer();
+      if (readbackBytes.byteLength !== file.size) {
+        throw new Error(
+          `Ukuran berkas hasil baca ulang (${formatBytes(
+            readbackBytes.byteLength
+          )}) berbeda dengan berkas asli (${formatBytes(file.size)}).`
+        );
+      }
+
+      const readbackSha256 = await computeFileSha256(readbackBytes);
+      if (readbackSha256 !== sha256) {
+        throw new Error(
+          "Isi berkas hasil baca ulang tidak cocok dengan berkas yang diunggah."
+        );
       }
     });
 
@@ -562,6 +617,7 @@ export class SolidDocumentRepository {
       uploadedAt,
       uploaderWebId: this.webId,
       sha256,
+      aiApproved: false,
       isComplete: true,
     };
   }
@@ -600,22 +656,224 @@ export class SolidDocumentRepository {
     };
   }
 
-  private async verifyFileExists(fileUrl: string): Promise<boolean> {
-    try {
-      const response = await this.fetchImpl(fileUrl, { method: "HEAD" });
-      if (response.ok) return true;
-      if (response.status === 405) {
-        // Jika HEAD tidak didukung oleh server tertentu, coba GET dengan range 0-0
-        const getResp = await this.fetchImpl(fileUrl, {
-          method: "GET",
-          headers: { Range: "bytes=0-0" },
-        });
-        return getResp.ok;
+  /** Baca isi biner dokumen dari Pod (dipakai ekstraksi teks). */
+  async fetchDocumentBytes(document: ProjectDocument): Promise<ArrayBuffer> {
+    const response = await this.readBackBinary(document.fileUrl);
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        throw new SolidDocumentAccessDeniedError(
+          document.fileUrl,
+          response.status
+        );
       }
-      return false;
-    } catch {
-      return false;
+      throw new SolidDocumentError(
+        "download-binary",
+        `Gagal membaca berkas (HTTP ${response.status}).`
+      );
     }
+    return response.arrayBuffer();
+  }
+
+  /**
+   * Tandai dokumen disetujui (atau tidak) untuk dipakai sebagai konteks AI.
+   * Status disimpan di metadata.ttl dokumen sehingga ikut terbaca saat daftar
+   * dokumen dimuat ulang dari Pod.
+   */
+  async setAiApproved(
+    document: ProjectDocument,
+    approved: boolean
+  ): Promise<void> {
+    // Kebijakan AI adalah hak Owner saja; Editor tidak boleh mengubahnya.
+    if (this.currentUserRole !== "Owner") {
+      throw new SolidDocumentAccessDeniedError(this.workspaceUrl, 403);
+    }
+
+    await this.runStep("update-approval", async () => {
+      const dataset = await this.buildMetadataDataset(document.metadataUrl, {
+        documentId: document.id,
+        name: document.name,
+        fileUrl: document.fileUrl,
+        mimeType: document.mimeType,
+        sizeBytes: document.sizeBytes,
+        uploadedAt: document.uploadedAt,
+        uploaderWebId: document.uploaderWebId,
+        sha256: document.sha256,
+        aiApproved: approved,
+      });
+      await this.writeDatasetAt(document.metadataUrl, dataset);
+    });
+  }
+
+  /**
+   * Hapus dokumen dari Pod: berkas biner, metadata, lalu kontainer kosongnya.
+   * Resource yang sudah tidak ada (404/410) dianggap berhasil dihapus.
+   */
+  async deleteDocument(document: ProjectDocument): Promise<void> {
+    await this.deleteDocumentEntry({
+      id: document.id,
+      fileUrl: document.fileUrl,
+      metadataUrl: document.metadataUrl,
+    });
+  }
+
+  /**
+   * Hapus satu entri dokumen, termasuk entri yang belum lengkap (mis. sisa
+   * percobaan unggah yang gagal) sehingga kontainernya bisa dibersihkan.
+   */
+  async deleteDocumentEntry(entry: {
+    id: string;
+    fileUrl?: string;
+    metadataUrl?: string;
+  }): Promise<void> {
+    if (!this.canWriteDocuments()) {
+      throw new SolidDocumentAccessDeniedError(this.workspaceUrl, 403);
+    }
+
+    await this.runStep("delete-document", async () => {
+      const containerUrl = this.documentContainerUrlFor(entry.id);
+
+      if (entry.fileUrl) {
+        await this.deleteResourceIfExists(entry.fileUrl);
+      }
+      if (entry.metadataUrl) {
+        await this.deleteResourceIfExists(entry.metadataUrl);
+      }
+
+      const response = await this.fetchImpl(containerUrl, { method: "DELETE" });
+      if (!response.ok && ![404, 410].includes(response.status)) {
+        throw new Error(
+          `Server Pod menolak menghapus kontainer dokumen (HTTP ${response.status}).`
+        );
+      }
+    });
+  }
+
+  /** Baca berkas untuk verifikasi. Satu kegagalan sesaat (jaringan, 5xx, atau
+   * 404 yang belum terlihat) dicoba ulang sekali sebelum menyerah.
+   */
+  private async readBackBinary(fileUrl: string): Promise<Response> {
+    let lastResponse: Response | null = null;
+    let lastError: unknown = null;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+      try {
+        const response = await this.fetchImpl(fileUrl, { cache: "no-store" });
+        if (response.ok) return response;
+        lastResponse = response;
+        if (response.status === 401 || response.status === 403) {
+          return response;
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (lastResponse) return lastResponse;
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("Berkas biner tidak dapat dibaca kembali dari Pod.");
+  }
+
+  private async verifyFileExists(fileUrl: string): Promise<boolean> {
+    // HEAD dipakai lebih dulu karena murah. Bila server menolaknya (405/501),
+    // memblokirnya lewat CORS, atau membalas non-2xx, jatuh ke GET.
+    const head = await this.safeRequest(fileUrl, { method: "HEAD" });
+    if (head?.ok) return true;
+
+    const get = await this.safeRequest(fileUrl, {
+      method: "GET",
+      cache: "no-store",
+    });
+    if (get?.ok) {
+      try {
+        await get.body?.cancel();
+      } catch {
+        // Abaikan kegagalan pembatalan body; berkas sudah terbukti ada.
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  private async safeRequest(
+    url: string,
+    init?: RequestInit
+  ): Promise<Response | null> {
+    try {
+      return await this.fetchImpl(url, init);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Susun dataset RDF metadata dokumen (selalu dibuat dari nol). */
+  private async buildMetadataDataset(
+    metadataUrl: string,
+    fields: DocumentMetadataFields
+  ): Promise<SolidDataset> {
+    const {
+      createSolidDataset,
+      createThing,
+      setThing,
+      setUrl,
+      setStringNoLocale,
+      setDatetime,
+      setBoolean,
+    } = await this.solid();
+
+    let thing = createThing({ url: `${metadataUrl}#document` });
+    thing = setUrl(thing, RDF_TYPE, `${CPD}Document`);
+    thing = setStringNoLocale(thing, `${CPD}id`, fields.documentId);
+    thing = setStringNoLocale(thing, `${CPD}name`, fields.name);
+    thing = setUrl(thing, `${CPD}fileUrl`, fields.fileUrl);
+    thing = setStringNoLocale(thing, `${CPD}mimeType`, fields.mimeType);
+    thing = setStringNoLocale(thing, `${CPD}sizeBytes`, String(fields.sizeBytes));
+    thing = setDatetime(thing, `${CPD}uploadedAt`, new Date(fields.uploadedAt));
+    thing = setUrl(thing, `${CPD}uploader`, fields.uploaderWebId);
+    thing = setStringNoLocale(thing, `${CPD}sha256`, fields.sha256);
+    thing = setBoolean(thing, `${CPD}aiApproved`, fields.aiApproved);
+
+    return setThing(createSolidDataset(), thing);
+  }
+
+  /**
+   * Tulis metadata sebagai PUT idempoten. `saveSolidDatasetAt` mengirim
+   * If-None-Match: * sehingga penulisan ulang ke URL yang sudah ada ditolak
+   * dengan 412; dalam kasus itu metadata lama dihapus lalu ditulis ulang.
+   */
+  private async writeDatasetAt(
+    metadataUrl: string,
+    dataset: SolidDataset
+  ): Promise<void> {
+    const { saveSolidDatasetAt, deleteFile } = await this.solid();
+
+    try {
+      await saveSolidDatasetAt(metadataUrl, dataset, {
+        fetch: this.fetchImpl,
+      });
+    } catch (error) {
+      if (httpStatusOf(error) !== 412) {
+        throw error;
+      }
+      await deleteFile(metadataUrl, { fetch: this.fetchImpl });
+      await saveSolidDatasetAt(metadataUrl, dataset, {
+        fetch: this.fetchImpl,
+      });
+    }
+  }
+
+  private async deleteResourceIfExists(url: string): Promise<void> {
+    const response = await this.fetchImpl(url, { method: "DELETE" });
+    if (response.ok || response.status === 404 || response.status === 410) {
+      return;
+    }
+    throw new Error(
+      `Server Pod menolak menghapus resource dokumen (HTTP ${response.status}).`
+    );
   }
 
   private async ensureContainer(url: string): Promise<void> {

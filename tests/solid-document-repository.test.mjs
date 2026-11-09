@@ -20,14 +20,26 @@ function respond(url, body = null, init = {}) {
   return response;
 }
 
+function headerValue(headers, name) {
+  if (!headers) return undefined;
+  if (typeof headers.get === "function") return headers.get(name) ?? undefined;
+  const lower = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === lower) return value;
+  }
+  return undefined;
+}
+
 function createFakeDocPod({
   containerStatus = 200,
   networkDown = false,
   failAtBinary = false,
   failAtMetadata = false,
+  corruptBinaryReadback = false,
 } = {}) {
   const resources = new Map();
   const requests = [];
+  const flags = { failAtBinary, failAtMetadata, corruptBinaryReadback };
 
   // Inisialisasi kontainer kosong
   if (containerStatus === 200) {
@@ -52,11 +64,15 @@ function createFakeDocPod({
       return respond(url, null, { status: containerStatus });
     }
 
-    if (failAtBinary && method === "PUT" && url.includes("/file.")) {
+    if (flags.failAtBinary && method === "PUT" && url.includes("/file.")) {
       return respond(url, "Simulated binary upload error", { status: 500 });
     }
 
-    if (failAtMetadata && (method === "PUT" || method === "PATCH") && url.endsWith("metadata.ttl")) {
+    if (
+      flags.failAtMetadata &&
+      (method === "PUT" || method === "PATCH") &&
+      url.endsWith("metadata.ttl")
+    ) {
       return respond(url, "Simulated metadata write error", { status: 500 });
     }
 
@@ -72,14 +88,56 @@ function createFakeDocPod({
       if (!res) {
         return respond(url, null, { status: 404 });
       }
+      if (
+        flags.corruptBinaryReadback &&
+        url.includes("/file.") &&
+        res.body instanceof ArrayBuffer
+      ) {
+        const truncated = res.body.slice(0, Math.max(1, res.body.byteLength - 2));
+        return respond(url, truncated, {
+          status: 200,
+          headers: { "Content-Type": res.type },
+        });
+      }
       return respond(url, res.body, {
         status: 200,
         headers: { "Content-Type": res.type },
       });
     }
 
+    if (method === "DELETE") {
+      if (!resources.has(url)) {
+        return respond(url, null, { status: 404 });
+      }
+      resources.delete(url);
+
+      // Hapus juga referensi ldp:contains saat sub-kontainer dokumen dihapus.
+      if (url !== DOCUMENTS_CONTAINER && url.startsWith(DOCUMENTS_CONTAINER)) {
+        const containerRes = resources.get(DOCUMENTS_CONTAINER);
+        if (containerRes) {
+          containerRes.body = containerRes.body
+            .split("\n")
+            .filter((line) => !line.includes(`<${url}>`))
+            .join("\n");
+        }
+      }
+
+      return respond(url, null, { status: 205 });
+    }
+
     if (method === "PUT") {
-      const contentType = init.headers?.["Content-Type"] ?? "application/octet-stream";
+      // Community Solid Server menolak penulisan metadata yang sudah ada bila
+      // klien mengirim If-None-Match: *. Tiru perilaku tersebut.
+      if (
+        url.endsWith("metadata.ttl") &&
+        headerValue(init.headers, "If-None-Match") === "*" &&
+        resources.has(url)
+      ) {
+        return respond(url, null, { status: 412 });
+      }
+
+      const contentType =
+        headerValue(init.headers, "Content-Type") ?? "application/octet-stream";
       resources.set(url, { body, type: contentType });
 
       // Jika URL adalah sub-kontainer dokumen, tambahkan ke ldp:contains di container utama
@@ -114,6 +172,7 @@ function createFakeDocPod({
     fetch: fakeFetch,
     resources,
     requests,
+    flags,
   };
 }
 
@@ -188,10 +247,37 @@ test("berkas TXT dan metadata tersimpan dan dapat dibaca kembali", async () => {
   assert.equal(listResult.documents.length, 1);
   assert.equal(listResult.documents[0].id, doc.id);
   assert.equal(listResult.documents[0].name, "data-lapangan.txt");
+});// 6. Penyimpanan berkas PDF
+ test("berkas PDF tersimpan dengan ekstensi file.pdf dan MIME application/pdf", async () => {
+  const fake = createFakeDocPod();
+  const repo = new SolidDocumentRepository({
+    workspaceUrl: WORKSPACE_URL,
+    webId: WEB_ID,
+    ownerWebId: WEB_ID,
+    fetch: fake.fetch,
+  });
+
+  const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]);
+  const file = {
+    name: "Laporan Akhir.pdf",
+    size: pdfBytes.byteLength,
+    type: "application/pdf",
+    arrayBuffer: async () => pdfBytes.buffer,
+  };
+
+  const doc = await repo.uploadDocument(file);
+  assert.equal(doc.mimeType, "application/pdf");
+  assert.ok(doc.fileUrl.endsWith("/file.pdf"));
+
+  const list = await repo.listDocuments();
+  assert.equal(list.documents.length, 1);
+  assert.equal(list.documents[0].name, "Laporan Akhir.pdf");
+  assert.equal(list.documents[0].mimeType, "application/pdf");
+  assert.equal(list.incompleteDocuments.length, 0);
 });
 
-// 6. Kegagalan unggah sebagian dan retry tanpa duplikat
-test("kegagalan metadata tidak membuat duplikat saat retry dengan ID sama", async () => {
+// 7. Kegagalan unggah sebagian dan retry tanpa duplikat
+ test("kegagalan metadata tidak membuat duplikat saat retry dengan ID sama", async () => {
   const fake = createFakeDocPod({ failAtMetadata: true });
   const repo = new SolidDocumentRepository({
     workspaceUrl: WORKSPACE_URL,
@@ -215,27 +301,85 @@ test("kegagalan metadata tidak membuat duplikat saat retry dengan ID sama", asyn
     (err) => err instanceof SolidDocumentError && err.step === "write-metadata"
   );
 
-  // Perbaiki kegagalan metadata untuk simulasi retry
-  fake.requests.length = 0;
-  // Nonaktifkan failAtMetadata
-  const retryFake = createFakeDocPod();
-  const retryRepo = new SolidDocumentRepository({
+  // Retry pada Pod yang sama setelah gangguan metadata hilang
+  fake.flags.failAtMetadata = false;
+  const retryDoc = await repo.uploadDocument(file, { documentId: fixedId });
+  assert.equal(retryDoc.id, fixedId);
+
+  const list = await repo.listDocuments();
+  assert.equal(list.documents.length, 1);
+  assert.equal(list.documents[0].id, fixedId);
+
+  // Kontainer hanya mencantumkan satu sub-kontainer untuk ID tersebut
+  const containerBody = fake.resources.get(DOCUMENTS_CONTAINER).body;
+  const occurrences = containerBody.split(`${DOCUMENTS_CONTAINER}${fixedId}/`).length - 1;
+  assert.equal(occurrences, 1);
+});
+
+// 7b. Retry setelah berkas & metadata terlanjur tertulis (kasus nyata di Pod)
+test("retry setelah verifikasi baca ulang gagal berhasil tanpa duplikat", async () => {
+  const fake = createFakeDocPod({ corruptBinaryReadback: true });
+  const repo = new SolidDocumentRepository({
     workspaceUrl: WORKSPACE_URL,
     webId: WEB_ID,
     ownerWebId: WEB_ID,
-    fetch: retryFake.fetch,
+    fetch: fake.fetch,
   });
 
-  const retryDoc = await retryRepo.uploadDocument(file, { documentId: fixedId });
+  const fixedId = "doc-retry-verify";
+  const fileData = new TextEncoder().encode("Dokumen percobaan verifikasi").buffer;
+  const file = {
+    name: "uji-verifikasi.pdf",
+    size: fileData.byteLength,
+    type: "application/pdf",
+    arrayBuffer: async () => fileData,
+  };
+
+  await assert.rejects(
+    () => repo.uploadDocument(file, { documentId: fixedId }),
+    (err) => err instanceof SolidDocumentError && err.step === "verify-readback"
+  );
+
+  // Metadata sudah ada di Pod; retry dengan ID sama harus menimpanya, bukan 412.
+  fake.flags.corruptBinaryReadback = false;
+  const retryDoc = await repo.uploadDocument(file, { documentId: fixedId });
   assert.equal(retryDoc.id, fixedId);
 
-  const list = await retryRepo.listDocuments();
+  const list = await repo.listDocuments();
   assert.equal(list.documents.length, 1);
   assert.equal(list.documents[0].id, fixedId);
+  assert.equal(list.incompleteDocuments.length, 0);
 });
 
-// 7. Error handling: 404 pada kontainer berarti daftar kosong
-test("kontainer 404 menghasilkan daftar kosong tanpa error", async () => {
+// 7c. Baca ulang dengan isi berbeda menggagalkan verifikasi
+test("berkas yang rusak saat dibaca ulang menggagalkan verifikasi", async () => {
+  const fake = createFakeDocPod({ corruptBinaryReadback: true });
+  const repo = new SolidDocumentRepository({
+    workspaceUrl: WORKSPACE_URL,
+    webId: WEB_ID,
+    ownerWebId: WEB_ID,
+    fetch: fake.fetch,
+  });
+
+  const fileData = new TextEncoder().encode("konten utuh percobaan").buffer;
+  const file = {
+    name: "rusak.txt",
+    size: fileData.byteLength,
+    type: "text/plain",
+    arrayBuffer: async () => fileData,
+  };
+
+  await assert.rejects(
+    () => repo.uploadDocument(file),
+    (err) =>
+      err instanceof SolidDocumentError &&
+      err.step === "verify-readback" &&
+      /Ukuran berkas hasil baca ulang/.test(err.cause.message)
+  );
+});
+
+// 8. Error handling: 404 pada kontainer berarti daftar kosong
+ test("kontainer 404 menghasilkan daftar kosong tanpa error", async () => {
   const fake = createFakeDocPod({ containerStatus: 404 });
   const repo = new SolidDocumentRepository({
     workspaceUrl: WORKSPACE_URL,
@@ -249,7 +393,7 @@ test("kontainer 404 menghasilkan daftar kosong tanpa error", async () => {
   assert.deepEqual(result.incompleteDocuments, []);
 });
 
-// 8. Error handling: 401/403 bukan daftar kosong
+// 9. Error handling: 401/403 bukan daftar kosong
 test("kontainer 403 melempar SolidDocumentAccessDeniedError", async () => {
   const fake = createFakeDocPod({ containerStatus: 403 });
   const repo = new SolidDocumentRepository({
@@ -265,7 +409,7 @@ test("kontainer 403 melempar SolidDocumentAccessDeniedError", async () => {
   );
 });
 
-// 9. Error handling: Gangguan jaringan bukan daftar kosong
+// 10. Error handling: Gangguan jaringan bukan daftar kosong
 test("gangguan jaringan melempar SolidDocumentError", async () => {
   const fake = createFakeDocPod({ networkDown: true });
   const repo = new SolidDocumentRepository({
@@ -281,7 +425,7 @@ test("gangguan jaringan melempar SolidDocumentError", async () => {
   );
 });
 
-// 10. Non-owner upload ditolak
+// 11. Non-owner upload ditolak
 test("unggah oleh non-owner melempar SolidDocumentAccessDeniedError", async () => {
   const fake = createFakeDocPod();
   const repo = new SolidDocumentRepository({
@@ -305,3 +449,133 @@ test("unggah oleh non-owner melempar SolidDocumentAccessDeniedError", async () =
   );
 });
 
+// 12. Status persetujuan AI disimpan ke metadata dokumen
+test("persetujuan AI tersimpan di metadata dan terbaca saat daftar dimuat", async () => {
+  const fake = createFakeDocPod();
+  const repo = new SolidDocumentRepository({
+    workspaceUrl: WORKSPACE_URL,
+    webId: WEB_ID,
+    ownerWebId: WEB_ID,
+    fetch: fake.fetch,
+  });
+
+  const fileData = new TextEncoder().encode("Isi dokumen untuk konteks AI").buffer;
+  const file = {
+    name: "konteks-ai.txt",
+    size: fileData.byteLength,
+    type: "text/plain",
+    arrayBuffer: async () => fileData,
+  };
+
+  const doc = await repo.uploadDocument(file);
+  assert.equal(doc.aiApproved, false);
+
+  await repo.setAiApproved(doc, true);
+  let list = await repo.listDocuments();
+  assert.equal(list.documents.length, 1);
+  assert.equal(list.documents[0].aiApproved, true);
+
+  await repo.setAiApproved(list.documents[0], false);
+  list = await repo.listDocuments();
+  assert.equal(list.documents[0].aiApproved, false);
+});
+
+// 13. Hapus dokumen membersihkan berkas, metadata, dan kontainer
+test("hapus dokumen menghapus berkas, metadata, dan kontainernya", async () => {
+  const fake = createFakeDocPod();
+  const repo = new SolidDocumentRepository({
+    workspaceUrl: WORKSPACE_URL,
+    webId: WEB_ID,
+    ownerWebId: WEB_ID,
+    fetch: fake.fetch,
+  });
+
+  const fileData = new TextEncoder().encode("Dokumen yang akan dihapus").buffer;
+  const file = {
+    name: "hapus-saya.pdf",
+    size: fileData.byteLength,
+    type: "application/pdf",
+    arrayBuffer: async () => fileData,
+  };
+
+  const doc = await repo.uploadDocument(file);
+  await repo.deleteDocument(doc);
+
+  const list = await repo.listDocuments();
+  assert.equal(list.documents.length, 0);
+  assert.equal(list.incompleteDocuments.length, 0);
+
+  const deletedUrls = fake.requests
+    .filter((request) => request.method === "DELETE")
+    .map((request) => request.url);
+  assert.ok(deletedUrls.includes(doc.fileUrl));
+  assert.ok(deletedUrls.includes(doc.metadataUrl));
+  assert.ok(
+    deletedUrls.includes(`${DOCUMENTS_CONTAINER}${doc.id}/`),
+    "kontainer dokumen harus ikut dihapus"
+  );
+});
+
+// 14. Non-owner tidak boleh menghapus atau menyetujui dokumen
+test("editor boleh mengunggah dan menghapus, tetapi tidak mengubah persetujuan AI", async () => {
+  const fake = createFakeDocPod();
+  const editorRepo = new SolidDocumentRepository({
+    workspaceUrl: WORKSPACE_URL,
+    webId: OTHER_WEB_ID,
+    ownerWebId: WEB_ID,
+    currentUserRole: "Editor",
+    fetch: fake.fetch,
+  });
+
+  const fileData = new TextEncoder().encode("Dokumen editor").buffer;
+  const doc = await editorRepo.uploadDocument({
+    name: "editor.txt",
+    size: fileData.byteLength,
+    type: "text/plain",
+    arrayBuffer: async () => fileData,
+  });
+
+  await assert.rejects(
+    () => editorRepo.setAiApproved(doc, true),
+    (err) => err instanceof SolidDocumentAccessDeniedError && err.status === 403
+  );
+
+  await editorRepo.deleteDocument(doc);
+  const list = await editorRepo.listDocuments();
+  assert.equal(list.documents.length, 0);
+});
+
+// 14. Non-owner tidak boleh menghapus atau menyetujui dokumen
+test("non-owner tidak dapat mengubah persetujuan AI atau menghapus dokumen", async () => {
+  const fake = createFakeDocPod();
+  const ownerRepo = new SolidDocumentRepository({
+    workspaceUrl: WORKSPACE_URL,
+    webId: WEB_ID,
+    ownerWebId: WEB_ID,
+    fetch: fake.fetch,
+  });
+
+  const fileData = new TextEncoder().encode("konten").buffer;
+  const doc = await ownerRepo.uploadDocument({
+    name: "bersama.txt",
+    size: fileData.byteLength,
+    type: "text/plain",
+    arrayBuffer: async () => fileData,
+  });
+
+  const viewerRepo = new SolidDocumentRepository({
+    workspaceUrl: WORKSPACE_URL,
+    webId: OTHER_WEB_ID,
+    ownerWebId: WEB_ID,
+    fetch: fake.fetch,
+  });
+
+  await assert.rejects(
+    () => viewerRepo.setAiApproved(doc, true),
+    (err) => err instanceof SolidDocumentAccessDeniedError && err.status === 403
+  );
+  await assert.rejects(
+    () => viewerRepo.deleteDocument(doc),
+    (err) => err instanceof SolidDocumentAccessDeniedError && err.status === 403
+  );
+});

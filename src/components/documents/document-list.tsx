@@ -9,9 +9,21 @@ import {
   TriangleAlert,
   RefreshCw,
   AlertCircle,
+  Eye,
+  Trash2,
+  Sparkles,
+  ShieldCheck,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   ProjectDocument,
   IncompleteProjectDocument,
@@ -22,7 +34,10 @@ import {
   formatUploadedAt,
   triggerFileDownload,
   describeSolidDocumentError,
+  isSolidDocumentAccessDenied,
 } from "@/lib/solid-document-repository";
+import { DocumentPreviewDialog } from "@/components/documents/document-preview-dialog";
+import { cn } from "@/lib/utils";
 
 interface DocumentListProps {
   repository: SolidDocumentRepository;
@@ -31,9 +46,29 @@ interface DocumentListProps {
   isLoading: boolean;
   error: unknown | null;
   onRefresh: () => void;
-  isOwner: boolean;
+  /** Owner/Editor boleh mengunggah dokumen. */
+  canUpload: boolean;
+  /** Owner/Editor boleh menghapus dokumen; Viewer tidak. */
+  canDelete: boolean;
+  /** Hanya Owner yang boleh mengubah kebijakan persetujuan AI. */
+  canApprove: boolean;
   onOpenUpload: () => void;
 }
+
+const ACCESS_DENIED_PREFIX = "Akses Ditolak: Anda tidak memiliki izin";
+
+/** Pesan aksi dokumen; penolakan WAC (401/403) diberi pesan khusus. */
+function describeActionError(error: unknown, action: string): string {
+  if (isSolidDocumentAccessDenied(error)) {
+    return `${ACCESS_DENIED_PREFIX} untuk ${action}.`;
+  }
+  const desc = describeSolidDocumentError(error);
+  return `${action}: ${desc.message}`;
+}
+
+type DeleteTarget =
+  | { kind: "document"; document: ProjectDocument }
+  | { kind: "incomplete"; entry: IncompleteProjectDocument };
 
 export function DocumentList({
   repository,
@@ -42,24 +77,77 @@ export function DocumentList({
   isLoading,
   error,
   onRefresh,
-  isOwner,
+  canUpload,
+  canDelete,
+  canApprove,
   onOpenUpload,
 }: DocumentListProps) {
   const [downloadingId, setDownloadingId] = React.useState<string | null>(null);
-  const [downloadError, setDownloadError] = React.useState<string | null>(null);
+  const [previewDocument, setPreviewDocument] =
+    React.useState<ProjectDocument | null>(null);
+  const [approvingId, setApprovingId] = React.useState<string | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = React.useState<DeleteTarget | null>(
+    null
+  );
+  const [isDeleting, setIsDeleting] = React.useState(false);
 
   const handleDownload = async (doc: ProjectDocument) => {
     setDownloadingId(doc.id);
-    setDownloadError(null);
+    setActionError(null);
 
     try {
       const { blob, filename } = await repository.downloadDocument(doc);
       triggerFileDownload(blob, filename);
     } catch (err) {
-      const desc = describeSolidDocumentError(err);
-      setDownloadError(`Gagal mengunduh "${doc.name}": ${desc.message}`);
+      setActionError(describeActionError(err, `mengunduh "${doc.name}"`));
     } finally {
       setDownloadingId(null);
+    }
+  };
+
+  const handleToggleApproval = async (doc: ProjectDocument) => {
+    setApprovingId(doc.id);
+    setActionError(null);
+
+    try {
+      await repository.setAiApproved(doc, !doc.aiApproved);
+      onRefresh();
+    } catch (err) {
+      setActionError(
+        describeActionError(
+          err,
+          `menyimpan persetujuan AI untuk "${doc.name}"`
+        )
+      );
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+
+    setIsDeleting(true);
+    setActionError(null);
+
+    try {
+      if (deleteTarget.kind === "document") {
+        await repository.deleteDocument(deleteTarget.document);
+      } else {
+        await repository.deleteDocumentEntry({
+          id: deleteTarget.entry.id,
+          fileUrl: deleteTarget.entry.fileUrl,
+          metadataUrl: deleteTarget.entry.metadataUrl,
+        });
+      }
+      setDeleteTarget(null);
+      onRefresh();
+    } catch (err) {
+      setActionError(describeActionError(err, "menghapus dokumen"));
+      setDeleteTarget(null);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -119,7 +207,7 @@ export function DocumentList({
           Berkas disimpan langsung di Pod Solid pemilik workspace. Format yang
           didukung adalah PDF dan TXT (maks. 5 MB per berkas, maks. 10 dokumen per proyek).
         </p>
-        {isOwner && (
+        {canUpload && (
           <Button
             type="button"
             variant="primary"
@@ -134,21 +222,26 @@ export function DocumentList({
     );
   }
 
+  const deleteName =
+    deleteTarget?.kind === "document"
+      ? deleteTarget.document.name
+      : deleteTarget?.entry.id;
+
   return (
     <div className="space-y-4">
-      {/* Notifikasi error unduh jika terjadi */}
-      {downloadError && (
+      {/* Notifikasi error aksi dokumen */}
+      {actionError && (
         <div
           className="flex items-center justify-between p-3 rounded-lg border border-rose-400/30 bg-rose-500/10 text-xs text-rose-100"
           role="alert"
         >
           <div className="flex items-center gap-2 min-w-0">
             <AlertCircle className="h-4 w-4 text-rose-300 shrink-0" />
-            <span className="truncate">{downloadError}</span>
+            <span className="truncate">{actionError}</span>
           </div>
           <button
             type="button"
-            onClick={() => setDownloadError(null)}
+            onClick={() => setActionError(null)}
             className="text-rose-300 hover:text-rose-100 text-xs underline shrink-0 ml-2"
           >
             Tutup
@@ -162,19 +255,26 @@ export function DocumentList({
           {documents.map((doc) => {
             const isPdf = doc.mimeType === "application/pdf";
             const isDownloading = downloadingId === doc.id;
+            const isApproving = approvingId === doc.id;
 
             return (
               <div
                 key={doc.id}
-                className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 transition-colors hover:bg-card/80"
+                className="flex flex-col gap-3 p-4 transition-colors hover:bg-card/80 sm:flex-row sm:items-center sm:justify-between"
               >
-                <div className="flex items-start gap-3 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setPreviewDocument(doc)}
+                  className="flex min-w-0 flex-1 items-start gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+                  aria-label={`Pratinjau teks dokumen ${doc.name}`}
+                >
                   <div
-                    className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                    className={cn(
+                      "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
                       isPdf
                         ? "bg-rose-500/15 text-rose-300"
                         : "bg-indigo-500/15 text-indigo-300"
-                    }`}
+                    )}
                   >
                     {isPdf ? (
                       <FileText className="h-4 w-4" />
@@ -193,6 +293,15 @@ export function DocumentList({
                       >
                         {isPdf ? "PDF" : "TXT"}
                       </Badge>
+                      {doc.aiApproved && (
+                        <Badge
+                          variant="teal"
+                          className="text-[10px] py-0 px-1.5 gap-1"
+                        >
+                          <ShieldCheck className="h-3 w-3" />
+                          AI
+                        </Badge>
+                      )}
                     </div>
 
                     <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -210,11 +319,58 @@ export function DocumentList({
                           </span>
                         </>
                       )}
+                      <span>•</span>
+                      <span className="inline-flex items-center gap-1 text-primary/90">
+                        <Eye className="h-3 w-3" />
+                        Lihat teks
+                      </span>
                     </div>
                   </div>
-                </div>
+                </button>
 
-                <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                <div className="flex flex-wrap items-center gap-2 self-end sm:self-center sm:justify-end shrink-0">
+                  {canApprove && (
+                    <button
+                      type="button"
+                      aria-pressed={doc.aiApproved}
+                      disabled={isApproving}
+                      onClick={() => handleToggleApproval(doc)}
+                      title={
+                        doc.aiApproved
+                          ? "Dokumen disetujui sebagai konteks AI. Klik untuk membatalkan."
+                          : "Setujui dokumen ini sebagai konteks AI."
+                      }
+                      className={cn(
+                        "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-60",
+                        doc.aiApproved
+                          ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25"
+                          : "border-border bg-transparent text-muted-foreground hover:bg-secondary hover:text-foreground"
+                      )}
+                    >
+                      {isApproving ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : doc.aiApproved ? (
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                      ) : (
+                        <Sparkles className="h-3.5 w-3.5" />
+                      )}
+                      <span>
+                        {doc.aiApproved ? "Disetujui untuk AI" : "Setujui untuk AI"}
+                      </span>
+                    </button>
+                  )}
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPreviewDocument(doc)}
+                    className="inline-flex items-center gap-1.5 h-8 text-xs font-medium"
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    <span>Pratinjau</span>
+                  </Button>
+
                   <Button
                     type="button"
                     variant="outline"
@@ -235,6 +391,22 @@ export function DocumentList({
                       </>
                     )}
                   </Button>
+
+                  {canDelete && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        setDeleteTarget({ kind: "document", document: doc })
+                      }
+                      className="inline-flex items-center gap-1.5 h-8 text-xs font-medium text-rose-300 hover:bg-rose-500/10 hover:text-rose-200"
+                      aria-label={`Hapus dokumen ${doc.name}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>Hapus</span>
+                    </Button>
+                  )}
                 </div>
               </div>
             );
@@ -260,16 +432,88 @@ export function DocumentList({
             {incompleteDocuments.map((inc) => (
               <div
                 key={inc.id}
-                className="flex items-center justify-between text-muted-foreground font-mono text-[11px] bg-background/50 px-2.5 py-1.5 rounded"
+                className="flex items-center justify-between gap-3 text-muted-foreground font-mono text-[11px] bg-background/50 px-2.5 py-1.5 rounded"
               >
                 <span className="truncate max-w-[200px]">{inc.id}</span>
-                <span className="text-amber-300/80">{inc.reason}</span>
+                <span className="flex items-center gap-2 min-w-0">
+                  <span className="truncate text-amber-300/80">{inc.reason}</span>
+                  {canDelete && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDeleteTarget({ kind: "incomplete", entry: inc })
+                      }
+                      className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-sans text-rose-300 hover:bg-rose-500/10 hover:text-rose-200"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      Hapus
+                    </button>
+                  )}
+                </span>
               </div>
             ))}
           </div>
         </div>
       )}
+
+      {/* Dialog Pratinjau Teks Dokumen */}
+      <DocumentPreviewDialog
+        document={previewDocument}
+        repository={repository}
+        onOpenChange={(open) => {
+          if (!open) setPreviewDocument(null);
+        }}
+      />
+
+      {/* Dialog Konfirmasi Hapus */}
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !isDeleting) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Hapus dokumen?</DialogTitle>
+            <DialogDescription>
+              Berkas <span className="font-semibold text-foreground">{deleteName}</span>{" "}
+              beserta metadatanya akan dihapus permanen dari Pod. Tindakan ini
+              tidak dapat dibatalkan.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isDeleting}
+              onClick={() => setDeleteTarget(null)}
+            >
+              Batal
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              disabled={isDeleting}
+              onClick={handleDelete}
+              className="inline-flex items-center gap-1.5"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Menghapus…
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Hapus permanen
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
-
