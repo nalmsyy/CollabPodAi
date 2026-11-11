@@ -4,21 +4,19 @@ import * as React from "react";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
-  Upload,
+  UploadCloud,
   FileText,
   FileCode,
+  Files,
   Loader2,
   CheckCircle2,
   TriangleAlert,
   X,
-  RefreshCw,
+  Lock,
 } from "lucide-react";
 import {
   SolidDocumentRepository,
@@ -57,6 +55,7 @@ export function UploadDocumentDialog({
   const [uploadSuccess, setUploadSuccess] = React.useState<ProjectDocument | null>(
     null
   );
+  const [isDragging, setIsDragging] = React.useState(false);
 
   // ID stabil untuk percobaan ulang (retry) agar tidak membuat duplikat di Pod
   const [stableDocId, setStableDocId] = React.useState<string>(() =>
@@ -84,8 +83,7 @@ export function UploadDocumentDialog({
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] ?? null;
+  const handleFile = (file: File | null) => {
     setUploadError(null);
     setUploadSuccess(null);
 
@@ -104,8 +102,19 @@ export function UploadDocumentDialog({
 
     setSelectedFile(file);
     setValidationError(null);
-    // Reset document ID for a newly selected file
     setStableDocId(createDocumentId());
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    handleFile(file);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0] ?? null;
+    handleFile(file);
   };
 
   const handleUpload = async () => {
@@ -122,7 +131,6 @@ export function UploadDocumentDialog({
       setUploadSuccess(doc);
       onSuccess(doc);
 
-      // Otomatis tutup dialog setelah feedback singkat
       setTimeout(() => {
         handleOpenChange(false);
       }, 1500);
@@ -135,8 +143,6 @@ export function UploadDocumentDialog({
         const desc = describeSolidDocumentError(err);
         setUploadError(`${desc.stepLabel} ${desc.message}`);
       }
-      // stableDocId TIDAK diubah, sehingga jika pengguna menekan Coba Lagi,
-      // upload akan menggunakan ID yang sama dan menimpa/memperbaiki entri tanpa membuat duplikat.
     } finally {
       setIsUploading(false);
     }
@@ -149,49 +155,60 @@ export function UploadDocumentDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[480px]">
-        <DialogHeader>
-          <DialogTitle>Unggah Dokumen ke Solid Pod</DialogTitle>
-          <DialogDescription>
-            Simpan berkas PDF atau TXT langsung ke kontainer privat workspace
-            proyek di Solid Pod Anda.
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className="sm:max-w-[490px] p-7 bg-[#fffefa] border border-[#dce6ce] rounded-2xl shadow-xl">
+        {/* Header Icon */}
+        <div className="flex items-center justify-between">
+          <div className="w-10 h-10 rounded-xl bg-[#eef3e6] border border-[#dce6ce] flex items-center justify-center text-[#53643e]">
+            <Files className="w-5 h-5" />
+          </div>
+        </div>
 
-        <div className="space-y-4 py-2">
+        {/* Title & Subtitle */}
+        <div className="space-y-1">
+          <DialogTitle className="text-[28px] font-serif font-normal text-foreground leading-snug">
+            Tambahkan sumber pengetahuan.
+          </DialogTitle>
+          <p className="text-[13px] text-muted-foreground">
+            Dokumen yang sama dapat mendukung semua pertanyaan AI dalam proyek.
+          </p>
+        </div>
+
+        <div className="space-y-4 pt-1">
           {/* Status Sukses */}
           {uploadSuccess ? (
-            <div className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border border-emerald-400/30 bg-emerald-500/10 text-center animate-in fade-in duration-200">
-              <CheckCircle2 className="h-8 w-8 text-emerald-400" />
-              <p className="font-semibold text-emerald-100 text-sm">
+            <div className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border border-emerald-300 bg-emerald-50 text-center animate-in fade-in duration-200">
+              <CheckCircle2 className="h-8 w-8 text-emerald-600" />
+              <p className="font-semibold text-emerald-900 text-sm">
                 Dokumen Berhasil Disimpan
               </p>
-              <p className="text-xs text-emerald-200/80">
-                Berkas asli dan metadata RDF telah tersimpan dan diverifikasi pada Pod Anda.
+              <p className="text-xs text-emerald-700">
+                Berkas asli dan metadata RDF telah tersimpan pada Solid Pod Anda.
               </p>
             </div>
           ) : (
             <>
-              {/* Batasan Dokumen */}
-              <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground p-3 rounded-lg border border-border bg-card/40">
-                <span className="font-medium text-foreground">Batas Tahap 3A:</span>
-                <span>PDF dan TXT</span>
-                <span>•</span>
-                <span>Maks. 5 MB/berkas</span>
-                <span>•</span>
-                <span>
-                  {currentDocumentCount} dari 10 dokumen digunakan
-                </span>
-              </div>
-
-              {/* Area Pilih Berkas */}
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="document-file-input"
-                  className="text-xs font-semibold text-foreground block"
-                >
-                  Pilih Berkas (.pdf atau .txt)
-                </label>
+              {/* Dropzone Area */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => fileInputRef.current?.click()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    fileInputRef.current?.click();
+                  }
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragging(true);
+                }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={handleDrop}
+                className={`relative flex flex-col items-center justify-center py-9 px-6 rounded-xl border border-dashed transition-all cursor-pointer text-center select-none ${
+                  isDragging
+                    ? "border-[#53643e] bg-[#eef3e6]"
+                    : "border-[#cad5ba] bg-[#f8faf4] hover:bg-[#f1f6eb]"
+                }`}
+              >
                 <input
                   id="document-file-input"
                   ref={fileInputRef}
@@ -199,28 +216,37 @@ export function UploadDocumentDialog({
                   accept=".pdf,.txt,application/pdf,text/plain"
                   disabled={isUploading}
                   onChange={handleFileChange}
-                  className="block w-full text-xs text-muted-foreground file:mr-3 file:py-2 file:px-3.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-primary/15 file:text-primary hover:file:bg-primary/25 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="hidden"
                 />
-                {validationError && (
-                  <p
-                    id="file-validation-error"
-                    className="text-xs text-rose-300 flex items-center gap-1.5 mt-1 font-medium"
-                  >
-                    <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
-                    {validationError}
-                  </p>
-                )}
+
+                <div className="w-10 h-10 rounded-full flex items-center justify-center text-[#53643e] mb-2">
+                  <UploadCloud className="w-8 h-8" />
+                </div>
+                <p className="text-[13px] font-medium text-foreground">
+                  Pilih atau letakkan dokumen di sini
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  PDF atau TXT · Maksimal 5 MB per berkas ({currentDocumentCount}/10 digunakan)
+                </p>
               </div>
 
-              {/* Pratinjau Berkas Terpilih */}
+              {/* Error Validasi */}
+              {validationError && (
+                <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-2.5 flex items-center gap-1.5 font-medium">
+                  <TriangleAlert className="h-4 w-4 shrink-0 text-rose-600" />
+                  {validationError}
+                </p>
+              )}
+
+              {/* Berkas Terpilih */}
               {selectedFile && !validationError && (
-                <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-secondary/40 text-xs">
+                <div className="flex items-center justify-between p-3 rounded-lg border border-[#dce6ce] bg-white text-xs">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div
                       className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
                         isPdf
-                          ? "bg-rose-500/15 text-rose-300"
-                          : "bg-indigo-500/15 text-indigo-300"
+                          ? "bg-rose-100 text-rose-700"
+                          : "bg-[#eef3e6] text-[#53643e]"
                       }`}
                     >
                       {isPdf ? (
@@ -241,11 +267,12 @@ export function UploadDocumentDialog({
                   {!isUploading && (
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setSelectedFile(null);
                         if (fileInputRef.current) fileInputRef.current.value = "";
                       }}
-                      className="text-muted-foreground hover:text-foreground p-1"
+                      className="text-muted-foreground hover:text-foreground p-1 rounded"
                       aria-label="Batalkan pilihan berkas"
                     >
                       <X className="h-4 w-4" />
@@ -254,77 +281,69 @@ export function UploadDocumentDialog({
                 </div>
               )}
 
-              {/* Notifikasi Kegagalan Unggah & Retry */}
+              {/* Notifikasi Kegagalan Unggah */}
               {uploadError && (
                 <div
-                  className="space-y-2 p-3.5 rounded-lg border border-rose-400/30 bg-rose-500/10 text-xs text-rose-100"
+                  className="space-y-1.5 p-3 rounded-lg border border-rose-200 bg-rose-50 text-xs text-rose-900"
                   role="alert"
                 >
                   <div className="flex items-start gap-2">
-                    <TriangleAlert className="h-4 w-4 text-rose-300 shrink-0 mt-0.5" />
-                    <div className="space-y-1 min-w-0">
-                      <p className="font-semibold text-rose-200">
+                    <TriangleAlert className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5 min-w-0">
+                      <p className="font-semibold text-rose-800">
                         Unggah Dokumen Gagal
                       </p>
-                      <p className="text-rose-200/80 leading-relaxed break-words">
+                      <p className="text-rose-700 leading-relaxed break-words">
                         {uploadError}
-                      </p>
-                      <p className="text-[11px] text-rose-300/80">
-                        ID dokumen dipertahankan ({stableDocId}). Anda dapat mencoba
-                        kembali tanpa membuat duplikat.
                       </p>
                     </div>
                   </div>
                 </div>
               )}
 
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
-                Catatan: Berkas yang diunggah mewarisi izin privat workspace
-                dan belum mendapat persetujuan pemrosesan AI.
-              </p>
+              {/* Note callout bawah seperti referensi */}
+              <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-[#edf2e4] text-[11px] text-[#53643e] leading-relaxed">
+                <Lock className="w-4 h-4 shrink-0 mt-0.5" />
+                <p>
+                  Dokumen baru belum disetujui untuk AI secara default. Berkas tersimpan langsung di Pod privat Anda dan persetujuan AI diatur oleh Owner.
+                </p>
+              </div>
+
+              {/* Tombol Simpan */}
+              {selectedFile && !validationError && (
+                <div className="pt-2 flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isUploading}
+                    onClick={() => handleOpenChange(false)}
+                  >
+                    Batal
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    disabled={isUploading}
+                    onClick={handleUpload}
+                    className="min-w-[120px]"
+                  >
+                    {isUploading ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Menyimpan…</span>
+                      </>
+                    ) : (
+                      <span>Simpan ke Pod</span>
+                    )}
+                  </Button>
+                </div>
+              )}
             </>
           )}
         </div>
-
-        <DialogFooter className="gap-2 sm:gap-0">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={isUploading}
-            onClick={() => handleOpenChange(false)}
-          >
-            {uploadSuccess ? "Tutup" : "Batal"}
-          </Button>
-
-          {!uploadSuccess && (
-            <Button
-              type="button"
-              variant="primary"
-              disabled={!selectedFile || !!validationError || isUploading}
-              onClick={handleUpload}
-              className="inline-flex items-center gap-1.5"
-            >
-              {isUploading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Mengunggah ke Pod…</span>
-                </>
-              ) : uploadError ? (
-                <>
-                  <RefreshCw className="h-4 w-4" />
-                  <span>Coba Lagi Unggah</span>
-                </>
-              ) : (
-                <>
-                  <Upload className="h-4 w-4" />
-                  <span>Unggah ke Pod</span>
-                </>
-              )}
-            </Button>
-          )}
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
-

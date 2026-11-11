@@ -11,10 +11,11 @@ import {
   AlertCircle,
   Eye,
   Trash2,
-  Sparkles,
   ShieldCheck,
+  Search,
+  X,
+  Shield,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -57,7 +58,6 @@ interface DocumentListProps {
 
 const ACCESS_DENIED_PREFIX = "Akses Ditolak: Anda tidak memiliki izin";
 
-/** Pesan aksi dokumen; penolakan WAC (401/403) diberi pesan khusus. */
 function describeActionError(error: unknown, action: string): string {
   if (isSolidDocumentAccessDenied(error)) {
     return `${ACCESS_DENIED_PREFIX} untuk ${action}.`;
@@ -69,6 +69,8 @@ function describeActionError(error: unknown, action: string): string {
 type DeleteTarget =
   | { kind: "document"; document: ProjectDocument }
   | { kind: "incomplete"; entry: IncompleteProjectDocument };
+
+type FilterTab = "all" | "approved" | "unapproved";
 
 export function DocumentList({
   repository,
@@ -92,6 +94,10 @@ export function DocumentList({
   );
   const [isDeleting, setIsDeleting] = React.useState(false);
 
+  // Filter & Search local state
+  const [filterTab, setFilterTab] = React.useState<FilterTab>("all");
+  const [searchQuery, setSearchQuery] = React.useState("");
+
   const handleDownload = async (doc: ProjectDocument) => {
     setDownloadingId(doc.id);
     setActionError(null);
@@ -107,6 +113,7 @@ export function DocumentList({
   };
 
   const handleToggleApproval = async (doc: ProjectDocument) => {
+    if (!canApprove) return;
     setApprovingId(doc.id);
     setActionError(null);
 
@@ -151,11 +158,25 @@ export function DocumentList({
     }
   };
 
+  // Filtered documents
+  const filteredDocuments = React.useMemo(() => {
+    return documents.filter((doc) => {
+      if (filterTab === "approved" && !doc.aiApproved) return false;
+      if (filterTab === "unapproved" && doc.aiApproved) return false;
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        return doc.name.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [documents, filterTab, searchQuery]);
+
   // State: Loading
   if (isLoading) {
     return (
       <div
-        className="flex flex-col items-center justify-center gap-3 py-12 rounded-xl border border-border bg-card/40 text-sm text-muted-foreground"
+        className="flex flex-col items-center justify-center gap-3 py-12 rounded-xl border border-border bg-[#fffefa] text-sm text-muted-foreground"
         role="status"
       >
         <Loader2 className="h-5 w-5 animate-spin text-primary" />
@@ -169,14 +190,14 @@ export function DocumentList({
     const desc = describeSolidDocumentError(error);
     return (
       <div
-        className="space-y-3 rounded-xl border border-rose-400/30 bg-rose-500/10 p-5 text-sm"
+        className="space-y-3 rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm"
         role="alert"
       >
         <div className="flex items-start gap-2.5">
-          <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-rose-300" />
+          <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" />
           <div className="space-y-1">
-            <p className="font-semibold text-rose-100">{desc.stepLabel}</p>
-            <p className="text-xs text-rose-200/80 leading-relaxed">{desc.message}</p>
+            <p className="font-semibold text-rose-900">{desc.stepLabel}</p>
+            <p className="text-xs text-rose-700 leading-relaxed">{desc.message}</p>
           </div>
         </div>
         <Button
@@ -196,8 +217,8 @@ export function DocumentList({
   // State: Empty
   if (documents.length === 0 && incompleteDocuments.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 px-4 rounded-xl border border-dashed border-border bg-card/20 text-center">
-        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-3">
+      <div className="flex flex-col items-center justify-center py-12 px-4 rounded-xl border border-dashed border-[#cad5ba] bg-[#f8faf4] text-center">
+        <div className="h-10 w-10 rounded-full bg-[#eef3e6] text-[#53643e] flex items-center justify-center mb-3">
           <FileText className="h-5 w-5" />
         </div>
         <p className="font-medium text-foreground text-sm">
@@ -228,222 +249,303 @@ export function DocumentList({
       : deleteTarget?.entry.id;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      {/* Banner Info Sumber seperti referensi */}
+      <div className="flex items-start justify-between gap-4 p-4 rounded-xl bg-[#edf2e4] border border-[#dce6ce] text-[#53643e]">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 w-6 h-6 rounded-md bg-[#e3ecda] flex items-center justify-center shrink-0">
+            <Shield className="w-4 h-4 text-[#53643e]" />
+          </div>
+          <div>
+            <p className="text-[13px] font-semibold text-[#374426]">
+              Satu sumber, untuk seluruh tim.
+            </p>
+            <p className="text-[11px] text-[#5d6f46] mt-0.5 leading-relaxed">
+              Dokumen proyek berada di Pod pemilik. Persetujuan AI berlaku untuk versi dokumen yang dipilih.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter Row: Segmented Buttons + Search */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        {/* Filter Segmented */}
+        <div className="inline-flex items-center rounded-lg bg-card border border-border p-1 text-[13px] font-medium gap-0.5 select-none">
+          <button
+            type="button"
+            onClick={() => setFilterTab("all")}
+            className={cn(
+              "px-3 py-1.5 rounded-md transition-all text-xs",
+              filterTab === "all"
+                ? "bg-[#e3e8d8] text-[#4d6037] font-[550]"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Semua ({documents.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterTab("approved")}
+            className={cn(
+              "px-3 py-1.5 rounded-md transition-all text-xs",
+              filterTab === "approved"
+                ? "bg-[#e3e8d8] text-[#4d6037] font-[550]"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Disetujui AI ({documents.filter((d) => d.aiApproved).length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterTab("unapproved")}
+            className={cn(
+              "px-3 py-1.5 rounded-md transition-all text-xs",
+              filterTab === "unapproved"
+                ? "bg-[#e3e8d8] text-[#4d6037] font-[550]"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Belum disetujui ({documents.filter((d) => !d.aiApproved).length})
+          </button>
+        </div>
+
+        {/* Search */}
+        <div className="relative max-w-xs w-full sm:w-auto">
+          <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Cari dokumen…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="flex h-9 w-full rounded-lg border border-border bg-card pl-8 pr-8 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground p-0.5"
+              aria-label="Hapus pencarian"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Notifikasi error aksi dokumen */}
       {actionError && (
         <div
-          className="flex items-center justify-between p-3 rounded-lg border border-rose-400/30 bg-rose-500/10 text-xs text-rose-100"
+          className="flex items-center justify-between p-3 rounded-lg border border-rose-200 bg-rose-50 text-xs text-rose-900"
           role="alert"
         >
           <div className="flex items-center gap-2 min-w-0">
-            <AlertCircle className="h-4 w-4 text-rose-300 shrink-0" />
+            <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
             <span className="truncate">{actionError}</span>
           </div>
           <button
             type="button"
             onClick={() => setActionError(null)}
-            className="text-rose-300 hover:text-rose-100 text-xs underline shrink-0 ml-2"
+            className="text-rose-700 hover:text-rose-900 text-xs underline shrink-0 ml-2"
           >
             Tutup
           </button>
         </div>
       )}
 
-      {/* Daftar Dokumen Lengkap */}
-      {documents.length > 0 && (
-        <div className="divide-y divide-border rounded-xl border border-border bg-card/50 overflow-hidden">
-          {documents.map((doc) => {
-            const isPdf = doc.mimeType === "application/pdf";
-            const isDownloading = downloadingId === doc.id;
-            const isApproving = approvingId === doc.id;
+      {/* Table Dokumen */}
+      <div className="border border-border rounded-xl bg-card overflow-hidden">
+        {/* Table Head */}
+        <div className="grid grid-cols-[1fr_auto_auto] sm:grid-cols-[1fr_140px_140px_auto] items-center gap-4 px-4 py-3 border-b border-border text-[11px] font-semibold uppercase tracking-wider text-muted-foreground bg-[#faf9f4]">
+          <span>Nama dokumen</span>
+          <span className="hidden sm:block">Ditambahkan oleh</span>
+          <span>Penggunaan AI</span>
+          <span className="text-right">Aksi</span>
+        </div>
 
-            return (
-              <div
-                key={doc.id}
-                className="flex flex-col gap-3 p-4 transition-colors hover:bg-card/80 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <button
-                  type="button"
-                  onClick={() => setPreviewDocument(doc)}
-                  className="flex min-w-0 flex-1 items-start gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
-                  aria-label={`Pratinjau teks dokumen ${doc.name}`}
+        {/* Table Body */}
+        {filteredDocuments.length === 0 ? (
+          <div className="p-8 text-center text-xs text-muted-foreground">
+            Tidak ada dokumen yang cocok dengan filter.
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {filteredDocuments.map((doc) => {
+              const isPdf = doc.mimeType === "application/pdf";
+              const isDownloading = downloadingId === doc.id;
+              const isApproving = approvingId === doc.id;
+
+              return (
+                <div
+                  key={doc.id}
+                  className="grid grid-cols-[1fr_auto_auto] sm:grid-cols-[1fr_140px_140px_auto] items-center gap-4 px-4 py-3.5 hover:bg-[#fafbf7] transition-colors"
                 >
-                  <div
-                    className={cn(
-                      "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
-                      isPdf
-                        ? "bg-rose-500/15 text-rose-300"
-                        : "bg-indigo-500/15 text-indigo-300"
-                    )}
-                  >
-                    {isPdf ? (
-                      <FileText className="h-4 w-4" />
-                    ) : (
-                      <FileCode className="h-4 w-4" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-semibold text-sm text-foreground truncate max-w-[280px] sm:max-w-md">
-                        {doc.name}
-                      </span>
-                      <Badge
-                        variant={isPdf ? "default" : "indigo"}
-                        className="text-[10px] py-0 px-1.5 uppercase font-mono"
-                      >
-                        {isPdf ? "PDF" : "TXT"}
-                      </Badge>
-                      {doc.aiApproved && (
-                        <Badge
-                          variant="teal"
-                          className="text-[10px] py-0 px-1.5 gap-1"
-                        >
-                          <ShieldCheck className="h-3 w-3" />
-                          AI
-                        </Badge>
-                      )}
-                    </div>
-
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      <span>{formatBytes(doc.sizeBytes)}</span>
-                      <span>•</span>
-                      <span>Diunggah {formatUploadedAt(doc.uploadedAt)}</span>
-                      {doc.sha256 && (
-                        <>
-                          <span>•</span>
-                          <span
-                            className="font-mono text-[10px] text-muted-foreground/80 truncate max-w-[120px]"
-                            title={`SHA-256: ${doc.sha256}`}
-                          >
-                            SHA: {doc.sha256.slice(0, 8)}…
-                          </span>
-                        </>
-                      )}
-                      <span>•</span>
-                      <span className="inline-flex items-center gap-1 text-primary/90">
-                        <Eye className="h-3 w-3" />
-                        Lihat teks
-                      </span>
-                    </div>
-                  </div>
-                </button>
-
-                <div className="flex flex-wrap items-center gap-2 self-end sm:self-center sm:justify-end shrink-0">
-                  {canApprove && (
-                    <button
-                      type="button"
-                      aria-pressed={doc.aiApproved}
-                      disabled={isApproving}
-                      onClick={() => handleToggleApproval(doc)}
-                      title={
-                        doc.aiApproved
-                          ? "Dokumen disetujui sebagai konteks AI. Klik untuk membatalkan."
-                          : "Setujui dokumen ini sebagai konteks AI."
-                      }
-                      className={cn(
-                        "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-60",
-                        doc.aiApproved
-                          ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25"
-                          : "border-border bg-transparent text-muted-foreground hover:bg-secondary hover:text-foreground"
-                      )}
-                    >
-                      {isApproving ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : doc.aiApproved ? (
-                        <ShieldCheck className="h-3.5 w-3.5" />
+                  {/* Kolom 1: Ikon + Nama + Metadata */}
+                  <div className="flex items-center gap-3 min-w-0">
+                    {/* Ikon berkas dengan label PDF/TXT */}
+                    <div className="flex flex-col items-center justify-center w-8 h-9 rounded-md border border-[#dce6ce] bg-[#f8faf4] shrink-0 text-[#53643e]">
+                      {isPdf ? (
+                        <FileText className="w-4 h-4" />
                       ) : (
-                        <Sparkles className="h-3.5 w-3.5" />
+                        <FileCode className="w-4 h-4" />
                       )}
-                      <span>
-                        {doc.aiApproved ? "Disetujui untuk AI" : "Setujui untuk AI"}
+                      <span className="text-[7px] font-bold font-mono tracking-tighter uppercase mt-[-1px]">
+                        {isPdf ? "PDF" : "TXT"}
                       </span>
-                    </button>
-                  )}
+                    </div>
 
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPreviewDocument(doc)}
-                    className="inline-flex items-center gap-1.5 h-8 text-xs font-medium"
-                  >
-                    <Eye className="h-3.5 w-3.5" />
-                    <span>Pratinjau</span>
-                  </Button>
+                    <div className="min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDocument(doc)}
+                        className="font-medium text-[13px] text-foreground hover:text-[#53643e] truncate block text-left transition-colors max-w-[200px] sm:max-w-xs md:max-w-sm"
+                        title={doc.name}
+                      >
+                        {doc.name}
+                      </button>
+                      <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                        {formatBytes(doc.sizeBytes)} · diunggah {formatUploadedAt(doc.uploadedAt)}
+                      </p>
+                    </div>
+                  </div>
 
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={isDownloading}
-                    onClick={() => handleDownload(doc)}
-                    className="inline-flex items-center gap-1.5 h-8 text-xs font-medium"
-                  >
-                    {isDownloading ? (
-                      <>
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        <span>Mengunduh…</span>
-                      </>
+                  {/* Kolom 2: Ditambahkan oleh */}
+                  <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+                    <div className="w-5 h-5 rounded-full bg-[#e3ecda] text-[#53643e] font-semibold text-[9px] flex items-center justify-center shrink-0">
+                      O
+                    </div>
+                    <span className="truncate text-[11px]">Owner</span>
+                  </div>
+
+                  {/* Kolom 3: Penggunaan AI Button / Pill */}
+                  <div>
+                    {canApprove ? (
+                      <button
+                        type="button"
+                        disabled={isApproving}
+                        onClick={() => handleToggleApproval(doc)}
+                        title={
+                          doc.aiApproved
+                            ? "Dokumen disetujui untuk AI. Klik untuk batalkan."
+                            : "Klik untuk menyetujui dokumen ini untuk AI."
+                        }
+                        className={cn(
+                          "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer border select-none",
+                          doc.aiApproved
+                            ? "bg-[#edf4e6] text-[#4d6037] border-[#cadab7] hover:bg-[#e2edd7]"
+                            : "bg-[#f5f6f1] text-[#7c8471] border-[#e3e6da] hover:bg-[#eaece4]"
+                        )}
+                      >
+                        {isApproving ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : doc.aiApproved ? (
+                          <>
+                            <ShieldCheck className="w-3 h-3 text-[#4d6037]" />
+                            <span>Disetujui</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="w-2 h-2 rounded-full border border-[#7c8471]" />
+                            <span>Belum disetujui</span>
+                          </>
+                        )}
+                      </button>
                     ) : (
-                      <>
-                        <Download className="h-3.5 w-3.5" />
-                        <span>Unduh</span>
-                      </>
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium border select-none",
+                          doc.aiApproved
+                            ? "bg-[#edf4e6] text-[#4d6037] border-[#cadab7]"
+                            : "bg-[#f5f6f1] text-[#7c8471] border-[#e3e6da]"
+                        )}
+                      >
+                        {doc.aiApproved ? "✓ Disetujui" : "○ Belum disetujui"}
+                      </span>
                     )}
-                  </Button>
+                  </div>
 
-                  {canDelete && (
+                  {/* Kolom 4: Aksi */}
+                  <div className="flex items-center justify-end gap-1 shrink-0">
                     <Button
                       type="button"
                       variant="ghost"
-                      size="sm"
-                      onClick={() =>
-                        setDeleteTarget({ kind: "document", document: doc })
-                      }
-                      className="inline-flex items-center gap-1.5 h-8 text-xs font-medium text-rose-300 hover:bg-rose-500/10 hover:text-rose-200"
-                      aria-label={`Hapus dokumen ${doc.name}`}
+                      size="icon"
+                      onClick={() => setPreviewDocument(doc)}
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                      title="Pratinjau isi dokumen"
+                      aria-label={`Pratinjau isi ${doc.name}`}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      <span>Hapus</span>
+                      <Eye className="w-3.5 h-3.5" />
                     </Button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
 
-      {/* Daftar Unggahan Belum Lengkap (jika ada kegagalan sebagian sebelumnya) */}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled={isDownloading}
+                      onClick={() => handleDownload(doc)}
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                      title="Unduh berkas"
+                      aria-label={`Unduh ${doc.name}`}
+                    >
+                      {isDownloading ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5" />
+                      )}
+                    </Button>
+
+                    {canDelete && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() =>
+                          setDeleteTarget({ kind: "document", document: doc })
+                        }
+                        className="h-7 w-7 text-muted-foreground hover:text-rose-600"
+                        title="Hapus dokumen"
+                        aria-label={`Hapus ${doc.name}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Daftar Unggahan Belum Lengkap */}
       {incompleteDocuments.length > 0 && (
-        <div className="space-y-2 rounded-xl border border-amber-400/30 bg-amber-500/10 p-4 text-xs">
-          <div className="flex items-center gap-2 text-amber-200 font-semibold">
-            <TriangleAlert className="h-4 w-4 shrink-0 text-amber-300" />
+        <div className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-4 text-xs">
+          <div className="flex items-center gap-2 text-amber-900 font-semibold">
+            <TriangleAlert className="h-4 w-4 shrink-0 text-amber-600" />
             <span>
               {incompleteDocuments.length} entri unggahan di Pod belum lengkap
             </span>
           </div>
-          <p className="text-amber-200/80 leading-relaxed">
+          <p className="text-amber-800 leading-relaxed">
             Entri berikut terdeteksi di direktori dokumen Pod namun berkas biner
-            atau metadatanya belum selesai tersimpan. Entri ini dipisahkan dan
-            tidak ditampilkan sebagai dokumen valid.
+            atau metadatanya belum selesai tersimpan.
           </p>
           <div className="space-y-1 pt-1">
             {incompleteDocuments.map((inc) => (
               <div
                 key={inc.id}
-                className="flex items-center justify-between gap-3 text-muted-foreground font-mono text-[11px] bg-background/50 px-2.5 py-1.5 rounded"
+                className="flex items-center justify-between gap-3 text-muted-foreground font-mono text-[11px] bg-white px-2.5 py-1.5 rounded border border-amber-200"
               >
                 <span className="truncate max-w-[200px]">{inc.id}</span>
                 <span className="flex items-center gap-2 min-w-0">
-                  <span className="truncate text-amber-300/80">{inc.reason}</span>
+                  <span className="truncate text-amber-700">{inc.reason}</span>
                   {canDelete && (
                     <button
                       type="button"
                       onClick={() =>
                         setDeleteTarget({ kind: "incomplete", entry: inc })
                       }
-                      className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-sans text-rose-300 hover:bg-rose-500/10 hover:text-rose-200"
+                      className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-sans text-rose-600 hover:bg-rose-100"
                     >
                       <Trash2 className="h-3 w-3" />
                       Hapus
@@ -472,7 +574,7 @@ export function DocumentList({
           if (!open && !isDeleting) setDeleteTarget(null);
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md bg-[#fffefa] border border-[#dce6ce] rounded-2xl">
           <DialogHeader>
             <DialogTitle>Hapus dokumen?</DialogTitle>
             <DialogDescription>

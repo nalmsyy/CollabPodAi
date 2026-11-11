@@ -120,8 +120,7 @@ export function MembersSection({
         if (cancelled) return;
         applyMembers([ownerMember, ...stored.map(toProjectMember)]);
       } catch {
-        // Daftar awal dari metadata proyek sudah cukup; kesalahan dibiarkan
-        // tanpa mengganggu tampilan sampai pengguna melakukan aksi.
+        // Abaikan
       }
     })();
 
@@ -166,11 +165,7 @@ export function MembersSection({
         kind: "success",
         text: `${memberDisplayName(
           validation.webId
-        )} ditambahkan sebagai ${role}. Izin ${
-          role === "Editor"
-            ? "baca/tulis dokumen"
-            : "hanya baca"
-        } sudah disimpan di Pod.`,
+        )} ditambahkan sebagai ${role}. Izin sudah disimpan di Pod.`,
       });
     } catch (error) {
       const desc = describeSolidAclError(error);
@@ -228,7 +223,7 @@ export function MembersSection({
     } catch {
       setFeedback({
         kind: "error",
-        text: "Tautan proyek tidak dapat disalin otomatis. Salin manual dari kolom tautan.",
+        text: "Tautan proyek tidak dapat disalin otomatis.",
       });
     } finally {
       setIsCopying(false);
@@ -239,31 +234,30 @@ export function MembersSection({
     <section className="space-y-4 pt-3 border-t border-border" aria-labelledby="members-heading">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Users className="h-4 w-4 text-primary" />
+          <Users className="h-4 w-4 text-[#53643e]" />
           <h2 id="members-heading" className="text-base font-semibold text-foreground">
-            Anggota &amp; Pengaturan
+            Anggota &amp; Akses
           </h2>
-          <Badge variant="secondary" className="text-xs font-mono">
+          <Badge variant="olive" className="text-xs font-mono">
             {invitedMembers.length + 1} anggota
           </Badge>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          WAC menegakkan izin ini langsung di Solid Pod.
+          WAC menegakkan izin langsung di Solid Pod.
         </p>
       </div>
 
       <p className="text-xs leading-relaxed text-muted-foreground">
         <span className="font-semibold text-foreground">Editor</span> dapat membaca
-        dan mengubah dokumen di kontainer <code className="font-mono">data/</code>.{" "}
+        dan mengunggah dokumen di <code className="font-mono text-[11px]">data/</code>.{" "}
         <span className="font-semibold text-foreground">Viewer</span> hanya dapat
-        membaca dokumen. Keduanya tidak dapat mengubah ACL, metadata proyek, atau
-        kebijakan AI.
+        membaca dokumen.
       </p>
 
       {/* Form undang anggota */}
       <form
         onSubmit={handleAdd}
-        className="space-y-3 rounded-xl border border-border bg-card/40 p-4"
+        className="space-y-3 rounded-xl border border-border bg-card p-4"
       >
         <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
           <div className="space-y-1.5">
@@ -291,9 +285,9 @@ export function MembersSection({
             {fieldError && (
               <p
                 id="member-webid-error"
-                className="flex items-center gap-1.5 text-xs font-medium text-rose-300"
+                className="flex items-center gap-1.5 text-xs font-medium text-rose-700"
               >
-                <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+                <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-rose-600" />
                 {fieldError}
               </p>
             )}
@@ -304,7 +298,7 @@ export function MembersSection({
             <div
               role="radiogroup"
               aria-label="Role anggota"
-              className="inline-flex h-9 items-center rounded-lg border border-border bg-card p-1 text-xs"
+              className="inline-flex h-9 items-center rounded-lg border border-border bg-card p-1 text-xs select-none"
             >
               {MEMBER_ROLES.map((option) => {
                 const active = role === option;
@@ -319,7 +313,7 @@ export function MembersSection({
                     className={cn(
                       "rounded-md px-3 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       active
-                        ? "bg-secondary text-foreground shadow-xs"
+                        ? "bg-[#e3e8d8] text-[#4d6037] font-semibold"
                         : "text-muted-foreground hover:text-foreground"
                     )}
                   >
@@ -331,11 +325,9 @@ export function MembersSection({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
           <p className="text-[11px] text-muted-foreground">
-            Memberi akses hanya pada kontainer{" "}
-            <code className="font-mono">data/</code> proyek; konfigurasi tetap
-            privat untuk pemilik.
+            Akses diberikan ke kontainer <code className="font-mono">data/</code> proyek.
           </p>
           <Button
             type="submit"
@@ -352,7 +344,7 @@ export function MembersSection({
             ) : (
               <>
                 <MailPlus className="h-3.5 w-3.5" />
-                Undang / Tambahkan
+                Undang anggota
               </>
             )}
           </Button>
@@ -363,17 +355,17 @@ export function MembersSection({
         <div
           role="alert"
           className={cn(
-            "flex items-start justify-between gap-2 rounded-lg border p-3 text-xs",
+            "flex items-start justify-between gap-2 rounded-xl border p-3 text-xs",
             feedback.kind === "success"
-              ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-100"
-              : "border-rose-400/30 bg-rose-500/10 text-rose-100"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : "border-rose-200 bg-rose-50 text-rose-900"
           )}
         >
           <div className="flex items-start gap-2 min-w-0">
             {feedback.kind === "success" ? (
-              <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-300" />
+              <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-600" />
             ) : (
-              <AlertCircle className="h-4 w-4 shrink-0 text-rose-300" />
+              <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
             )}
             <span className="leading-relaxed break-words">{feedback.text}</span>
           </div>
@@ -388,7 +380,7 @@ export function MembersSection({
       )}
 
       {/* Daftar anggota */}
-      <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card/50">
+      <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
         <MemberRow member={ownerMember} isOwner />
         {invitedMembers.map((member) => (
           <MemberRow
@@ -400,22 +392,20 @@ export function MembersSection({
         ))}
         {invitedMembers.length === 0 && (
           <p className="p-4 text-xs text-muted-foreground">
-            Belum ada anggota lain. Undang WebID di atas untuk berbagi akses
-            proyek.
+            Belum ada anggota lain. Undang WebID di atas untuk berbagi akses proyek.
           </p>
         )}
       </div>
 
       {/* Tautan akses untuk anggota */}
       {shareLink && (
-        <div className="space-y-2 rounded-xl border border-border bg-card/40 p-4">
+        <div className="space-y-2 rounded-xl border border-border bg-card p-4">
           <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-            <Link2 className="h-4 w-4 text-primary" />
+            <Link2 className="h-4 w-4 text-[#53643e]" />
             Tautan proyek untuk anggota
           </div>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             Anggota membuka tautan ini setelah masuk dengan WebID yang diundang.
-            Proyek berada di Pod Anda, jadi tautan memuat alamat Pod tersebut.
           </p>
           <div className="flex flex-col gap-2 sm:flex-row">
             <Input
@@ -435,7 +425,7 @@ export function MembersSection({
             >
               {copied ? (
                 <>
-                  <Check className="h-3.5 w-3.5" />
+                  <Check className="h-3.5 w-3.5 text-emerald-600" />
                   Tersalin
                 </>
               ) : (
@@ -456,16 +446,15 @@ export function MembersSection({
           if (!open && !removingWebId) setRevokeTarget(null);
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md bg-[#fffefa] border border-[#dce6ce] rounded-2xl">
           <DialogHeader>
             <DialogTitle>Cabut akses anggota?</DialogTitle>
             <DialogDescription>
-              <span className="font-mono break-all text-foreground">
+              <span className="font-mono break-all text-foreground font-semibold">
                 {revokeTarget?.webId}
               </span>{" "}
               akan kehilangan izin WAC pada kontainer data proyek dan entrinya
-              dihapus dari <code className="font-mono">members.ttl</code>.
-              Dokumen proyek tidak dihapus.
+              dihapus dari <code className="font-mono text-[11px]">members.ttl</code>.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -525,7 +514,7 @@ function MemberRow({
           </span>
           <RoleBadge role={member.role} />
           {isOwner && (
-            <Badge variant="outline" className="text-[10px]">
+            <Badge variant="olive" className="text-[10px]">
               Pemilik Pod
             </Badge>
           )}
@@ -543,7 +532,7 @@ function MemberRow({
           onClick={onRevoke}
           disabled={isRemoving}
           aria-label={`Cabut akses ${member.name}`}
-          className="inline-flex h-8 shrink-0 items-center gap-1.5 self-end text-xs font-medium text-rose-300 hover:bg-rose-500/10 hover:text-rose-200 sm:self-center"
+          className="inline-flex h-8 shrink-0 items-center gap-1.5 self-end text-xs font-medium text-rose-700 hover:bg-rose-50 sm:self-center"
         >
           {isRemoving ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />

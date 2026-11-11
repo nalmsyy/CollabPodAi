@@ -23,6 +23,7 @@ import {
   type ContextSearchResult,
   type ScoredChunk,
 } from "@/lib/retrieval";
+import { askAi, AskAiError } from "@/lib/ai-service";
 
 interface AskAISectionProps {
   repository: SolidDocumentRepository;
@@ -31,12 +32,20 @@ interface AskAISectionProps {
   documents: ProjectDocument[];
 }
 
+interface AnswerState {
+  pending: boolean;
+  text: string | null;
+  model: string | null;
+  error: { code: string; message: string } | null;
+}
+
 interface AskEntry {
   id: string;
   question: string;
   pending: boolean;
   error: string | null;
   result: ContextSearchResult | null;
+  answer: AnswerState;
 }
 
 interface ExtractionProgress {
@@ -46,6 +55,13 @@ interface ExtractionProgress {
 }
 
 const ACCESS_DENIED_PREFIX = "Akses Ditolak: Anda tidak memiliki izin";
+
+const EMPTY_ANSWER: AnswerState = {
+  pending: false,
+  text: null,
+  model: null,
+  error: null,
+};
 
 let entryCounter = 0;
 function nextEntryId(): string {
@@ -57,7 +73,6 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Ambil kutipan singkat di sekitar kemunculan kata kunci pertama. */
 function buildSnippet(text: string, terms: string[], maxChars = 320): string {
   const lower = text.toLowerCase();
   let index = -1;
@@ -70,7 +85,6 @@ function buildSnippet(text: string, terms: string[], maxChars = 320): string {
 
   let start = index <= 80 ? 0 : index - 80;
   if (start > 0) {
-    // Mulai di awal kata agar kutipan tidak terpotong di tengah kata.
     const space = text.indexOf(" ", start);
     if (space >= 0 && space - start < 40) start = space + 1;
   }
@@ -81,10 +95,10 @@ function buildSnippet(text: string, terms: string[], maxChars = 320): string {
     if (space > start) end = space;
   }
 
-  let snippet = text.slice(start, end).trim();
-  if (start > 0) snippet = `…${snippet}`;
-  if (end < text.length) snippet = `${snippet}…`;
-  return snippet;
+  const snippet = text.slice(start, end).trim();
+  const prefix = start > 0 ? "… " : "";
+  const suffix = end < text.length ? " …" : "";
+  return `${prefix}${snippet}${suffix}`;
 }
 
 function HighlightedText({
@@ -96,35 +110,32 @@ function HighlightedText({
 }) {
   if (terms.length === 0) return <>{text}</>;
 
-  const escaped = terms
-    .map(escapeRegExp)
-    .sort((a, b) => b.length - a.length)
-    .join("|");
-  const pattern = new RegExp(`(${escaped})`, "gi");
-  const lowered = new Set(terms.map((term) => term.toLowerCase()));
+  const pattern = new RegExp(
+    `(${terms.map(escapeRegExp).filter(Boolean).join("|")})`,
+    "gi"
+  );
+  const parts = text.split(pattern);
 
   return (
     <>
-      {text.split(pattern).map((part, index) =>
-        lowered.has(part.toLowerCase()) ? (
-          <mark
-            key={index}
-            className="rounded-sm bg-primary/25 px-0.5 text-primary-foreground"
-          >
-            {part}
-          </mark>
-        ) : (
-          <React.Fragment key={index}>{part}</React.Fragment>
-        )
-      )}
+      {parts.map((part, i) => {
+        const isMatch = terms.some(
+          (term) => term.toLowerCase() === part.toLowerCase()
+        );
+        if (isMatch) {
+          return (
+            <mark
+              key={i}
+              className="rounded bg-[#cadab7]/60 px-0.5 font-medium text-[#2b3027]"
+            >
+              {part}
+            </mark>
+          );
+        }
+        return <React.Fragment key={i}>{part}</React.Fragment>;
+      })}
     </>
   );
-}
-
-function pageLabel(pages: number[]): string {
-  if (pages.length === 0) return "Halaman tidak diketahui";
-  if (pages.length === 1) return `Hal. ${pages[0]}`;
-  return `Hal. ${pages[0]}–${pages[pages.length - 1]}`;
 }
 
 function ChunkCard({
@@ -135,22 +146,20 @@ function ChunkCard({
   readonly rank: number;
 }) {
   return (
-    <li className="rounded-xl border border-border bg-background/40 p-3">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-md bg-primary/15 px-1 font-mono text-[10px] font-semibold text-primary">
-          #{rank}
-        </span>
-        <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
-          {chunk.documentName}
-        </span>
-        <Badge variant="secondary" className="text-[10px]">
-          {pageLabel(chunk.pageNumbers)}
-        </Badge>
-        <Badge variant="outline" className="text-[10px]">
-          {chunk.wordCount} kata
-        </Badge>
-        <Badge variant="teal" className="font-mono text-[10px]">
+    <li className="rounded-xl border border-border bg-card p-3 text-left">
+      <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px]">
+        <div className="flex items-center gap-1.5 font-medium text-foreground">
+          <FileText className="h-3.5 w-3.5 text-[#53643e]" />
+          <span>
+            #{rank} {chunk.documentName}
+          </span>
+          {chunk.pageNumbers.length > 0 && (
+            <span className="text-muted-foreground">
+              · Hal {chunk.pageNumbers.join(", ")}
+            </span>
+          )}
+        </div>
+        <Badge variant="olive" className="font-mono text-[10px]">
           BM25 {chunk.score.toFixed(2)}
         </Badge>
       </div>
@@ -161,12 +170,12 @@ function ChunkCard({
         />
       </p>
       {chunk.matchedTerms.length > 0 && (
-        <p className="mt-2 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground/80">
+        <p className="mt-2 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
           Kata kunci cocok:
           {chunk.matchedTerms.map((term) => (
             <span
               key={term}
-              className="rounded-sm border border-border px-1 font-mono"
+              className="rounded-sm border border-border px-1 font-mono text-foreground"
             >
               {term}
             </span>
@@ -177,74 +186,144 @@ function ChunkCard({
   );
 }
 
-function EntryResult({ result }: { readonly result: ContextSearchResult }) {
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-        <MessageSquare className="h-3.5 w-3.5" />
+function AnswerPanel({
+  answer,
+  chunkCount,
+}: {
+  readonly answer: AnswerState;
+  readonly chunkCount: number;
+}) {
+  if (answer.pending) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
         <span>
-          {result.chunks.length} potongan terpilih dari {result.totalChunks}{" "}
-          potongan
+          Menyusun jawaban dari {chunkCount} potongan dokumen lewat AI Gateway…
         </span>
-        <span aria-hidden>·</span>
-        <span>{result.approvedDocuments.length} dokumen disetujui</span>
-        {result.fromCache && (
-          <Badge variant="outline" className="text-[10px]">
-            cache
-          </Badge>
+      </div>
+    );
+  }
+
+  if (answer.error) {
+    return (
+      <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
+        <p className="flex items-start gap-2 font-semibold text-rose-800">
+          <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-600" />
+          Jawaban AI gagal dibuat
+        </p>
+        <p className="mt-1 pl-5 text-rose-700">{answer.error.message}</p>
+        {answer.error.code === "missing_api_key" && (
+          <p className="mt-1 pl-5 text-[10px] text-rose-600">
+            Tambahkan <code className="font-mono">GEMINI_API_KEY</code> ke
+            berkas <code className="font-mono">.env.local</code>, lalu restart
+            dev server.
+          </p>
         )}
       </div>
+    );
+  }
 
+  if (!answer.text) return null;
+
+  return (
+    <div className="rounded-xl border border-[#dce6ce] bg-[#fffefa] p-4 shadow-sm">
+      <div className="flex flex-wrap items-center gap-1.5 pb-2 border-b border-[#e3e6da]">
+        <div className="w-5 h-5 rounded-md bg-[#eef3e6] flex items-center justify-center text-[#53643e]">
+          <Sparkles className="h-3 w-3" />
+        </div>
+        <span className="text-xs font-semibold text-foreground">
+          CollabPod AI
+        </span>
+        {answer.model && (
+          <Badge variant="outline" className="font-mono text-[9px]">
+            {answer.model}
+          </Badge>
+        )}
+        <Badge variant="olive" className="text-[9px]">
+          {chunkCount} sumber
+        </Badge>
+      </div>
+      <p className="mt-3 whitespace-pre-wrap text-xs leading-relaxed text-foreground">
+        {answer.text}
+      </p>
+    </div>
+  );
+}
+
+function EntryResult({
+  result,
+  answer,
+}: {
+  readonly result: ContextSearchResult;
+  readonly answer: AnswerState;
+}) {
+  return (
+    <div className="space-y-2">
       {result.chunks.length > 0 ? (
-        <ol className="space-y-2">
-          {result.chunks.map((chunk, index) => (
-            <ChunkCard key={chunk.id} chunk={chunk} rank={index + 1} />
-          ))}
-        </ol>
+        <AnswerPanel answer={answer} chunkCount={result.chunks.length} />
       ) : (
-        <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-xs text-amber-100">
-          <p className="font-semibold">Tidak ada potongan teks yang cocok.</p>
-          <p className="mt-1 text-amber-200/80">
-            Coba kata kunci lain yang lebih spesifik (istilah yang muncul di
-            dokumen), atau pastikan dokumen yang relevan sudah disetujui untuk
-            AI.
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+          <p className="font-semibold text-amber-800">Tidak ada potongan teks yang cocok.</p>
+          <p className="mt-1 text-amber-700">
+            Jawaban AI tidak dibuat karena tidak ada konteks yang relevan. Coba
+            kata kunci lain yang lebih spesifik, atau pastikan dokumen yang relevan sudah disetujui untuk AI.
           </p>
-          {result.approvedDocuments.length > 0 && (
-            <p className="mt-1 text-amber-200/70">
-              Dokumen yang bisa dicari:{" "}
-              {result.approvedDocuments.map((doc) => doc.name).join(", ")}.
-            </p>
-          )}
         </div>
       )}
 
-      {result.skipped.length > 0 && (
-        <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-[11px] text-amber-100">
-          <p className="flex items-center gap-1.5 font-semibold">
-            <TriangleAlert className="h-3.5 w-3.5" />
-            {result.skipped.length} dokumen disetujui tidak dapat diproses
-          </p>
-          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-amber-200/80">
-            {result.skipped.map((item) => (
-              <li key={item.documentId}>
-                <span className="font-medium">{item.documentName}</span>:{" "}
-                {item.reason}
-              </li>
-            ))}
-          </ul>
-        </div>
+      {result.chunks.length > 0 && (
+        <details className="group rounded-xl border border-border bg-card">
+          <summary className="flex cursor-pointer list-none flex-wrap items-center gap-1.5 rounded-xl px-3 py-2 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground">
+            <MessageSquare className="h-3.5 w-3.5" />
+            <span>
+              Lihat sumber konteks ({result.chunks.length} potongan ·{" "}
+              {result.approvedDocuments.length} dokumen disetujui)
+            </span>
+            {result.fromCache && (
+              <Badge variant="outline" className="text-[10px]">
+                cache
+              </Badge>
+            )}
+            <span className="ml-auto text-[10px] text-muted-foreground group-open:hidden">
+              Buka
+            </span>
+            <span className="ml-auto hidden text-[10px] text-muted-foreground group-open:inline">
+              Tutup
+            </span>
+          </summary>
+          <div className="space-y-2 border-t border-border p-3">
+            <p className="text-[10px] text-muted-foreground">
+              Teks asli yang dikirim ke Gemini sebagai konteks — hanya dari
+              dokumen yang disetujui Owner.
+            </p>
+            <ol className="space-y-2">
+              {result.chunks.map((chunk, index) => (
+                <ChunkCard key={chunk.id} chunk={chunk} rank={index + 1} />
+              ))}
+            </ol>
+            {result.skipped.length > 0 && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-[11px] text-amber-900">
+                <p className="flex items-center gap-1.5 font-semibold text-amber-800">
+                  <TriangleAlert className="h-3.5 w-3.5 text-amber-600" />
+                  {result.skipped.length} dokumen disetujui tidak dapat diproses
+                </p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-4 text-amber-700">
+                  {result.skipped.map((item) => (
+                    <li key={item.documentId}>
+                      <span className="font-medium">{item.documentName}</span>:{" "}
+                      {item.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </details>
       )}
     </div>
   );
 }
 
-/**
- * Bagian tanya jawab berbasis dokumen (tahap RAG 1).
- *
- * Saat ini belum ada panggilan LLM: pertanyaan dijalankan melalui pencarian
- * BM25 atas potongan teks dokumen yang disetujui Owner, lalu potongan paling
- * relevan ditampilkan sebagai konteks agar dapat diperiksa manual.
- */
 export function AskAISection({
   repository,
   projectId,
@@ -256,13 +335,15 @@ export function AskAISection({
   const [progress, setProgress] = React.useState<ExtractionProgress | null>(
     null
   );
-  const isBusy = entries.some((entry) => entry.pending);
+  const isBusy = entries.some(
+    (entry) => entry.pending || entry.answer.pending
+  );
   const endRef = React.useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
     if (entries.length === 0) return;
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [entries.length]);
+  }, [entries]);
 
   const ask = async (rawQuestion: string) => {
     const trimmed = rawQuestion.trim();
@@ -272,23 +353,23 @@ export function AskAISection({
     setQuestion("");
     setEntries((current) => [
       ...current,
-      { id, question: trimmed, pending: true, error: null, result: null },
+      {
+        id,
+        question: trimmed,
+        pending: true,
+        error: null,
+        result: null,
+        answer: EMPTY_ANSWER,
+      },
     ]);
 
+    let result: ContextSearchResult;
     try {
-      const result = await searchApprovedContexts(projectId, trimmed, {
+      result = await searchApprovedContexts(projectId, trimmed, {
         repository,
         topK: 4,
         onProgress: (info) => setProgress(info),
       });
-
-      setEntries((current) =>
-        current.map((entry) =>
-          entry.id === id
-            ? { ...entry, pending: false, result, error: null }
-            : entry
-        )
-      );
     } catch (error) {
       const message = isSolidDocumentAccessDenied(error)
         ? `${ACCESS_DENIED_PREFIX} untuk membaca dokumen proyek ini.`
@@ -301,8 +382,71 @@ export function AskAISection({
             : entry
         )
       );
-    } finally {
       setProgress(null);
+      return;
+    }
+
+    setProgress(null);
+    const hasContexts = result.chunks.length > 0;
+    setEntries((current) =>
+      current.map((entry) =>
+        entry.id === id
+          ? {
+              ...entry,
+              pending: false,
+              result,
+              error: null,
+              answer: hasContexts
+                ? { ...EMPTY_ANSWER, pending: true }
+                : EMPTY_ANSWER,
+            }
+          : entry
+      )
+    );
+
+    if (!hasContexts) return;
+
+    try {
+      const response = await askAi({ question: trimmed, chunks: result.chunks });
+      setEntries((current) =>
+        current.map((entry) =>
+          entry.id === id
+            ? {
+                ...entry,
+                answer: {
+                  pending: false,
+                  text: response.answer,
+                  model: response.model,
+                  error: null,
+                },
+              }
+            : entry
+        )
+      );
+    } catch (error) {
+      const answerError =
+        error instanceof AskAiError
+          ? { code: error.code, message: error.message }
+          : {
+              code: "ask_failed",
+              message:
+                "Terjadi kesalahan tak terduga saat meminta jawaban AI. Coba lagi.",
+            };
+      setEntries((current) =>
+        current.map((entry) =>
+          entry.id === id
+            ? {
+                ...entry,
+                answer: {
+                  pending: false,
+                  text: null,
+                  model: null,
+                  error: answerError,
+                },
+              }
+            : entry
+        )
+      );
     }
   };
 
@@ -324,24 +468,19 @@ export function AskAISection({
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="inline-flex items-center gap-1.5 text-base font-semibold text-foreground">
-              <Sparkles className="h-4 w-4 text-primary" />
+              <Sparkles className="h-4 w-4 text-[#53643e]" />
               Tanya AI
             </h2>
-            <Badge variant="secondary" className="text-[10px]">
-              RAG tahap 1
-            </Badge>
-            <Badge variant="outline" className="text-[10px]">
-              Tanpa LLM
+            <Badge variant="olive" className="text-[10px]">
+              RAG + Gemini
             </Badge>
           </div>
           <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">
-            Pertanyaan dicocokkan dengan potongan teks ±400 kata dari dokumen
-            yang{" "}
+            Pertanyaan dicocokkan dengan potongan teks dari dokumen yang{" "}
             <span className="font-medium text-foreground">
               disetujui Owner
             </span>{" "}
-            saja. Hasil pencarian ditampilkan sebagai konteks; belum dikirim ke
-            model bahasa.
+            saja.
           </p>
         </div>
         <Badge variant="secondary" className="shrink-0 self-start font-mono text-[10px]">
@@ -350,37 +489,32 @@ export function AskAISection({
       </div>
 
       {approvedCount === 0 ? (
-        <div className="rounded-xl border border-border bg-card/40 p-4 text-xs leading-relaxed text-muted-foreground">
+        <div className="rounded-xl border border-border bg-card p-4 text-xs leading-relaxed text-muted-foreground">
           <p className="font-semibold text-foreground">
             Belum ada dokumen yang disetujui untuk AI.
           </p>
           <p className="mt-1">
-            Owner perlu membuka dokumen lalu mengaktifkan{" "}
-            <span className="font-medium text-foreground">
-              &ldquo;Setujui untuk AI&rdquo;
-            </span>{" "}
-            pada dokumen yang boleh dipakai sebagai konteks. Viewer dan Editor
-            tidak dapat mengubah kebijakan ini.
+            Owner perlu menyetujui dokumen di tabel atas agar dapat dipakai sebagai konteks tanya jawab AI.
           </p>
         </div>
       ) : (
         <>
           {entries.length > 0 && (
             <div
-              className="space-y-4"
+              className="space-y-3"
               aria-live="polite"
               aria-label="Riwayat tanya jawab"
             >
               {entries.map((entry) => (
                 <div key={entry.id} className="space-y-2">
                   <div className="flex justify-end">
-                    <p className="max-w-[85%] rounded-xl rounded-br-sm bg-primary/15 px-3 py-2 text-xs leading-relaxed text-foreground">
+                    <p className="max-w-[85%] rounded-2xl rounded-br-sm bg-[#e8ebd9] border border-[#dce6ce] px-3.5 py-2.5 text-xs leading-relaxed text-foreground">
                       {entry.question}
                     </p>
                   </div>
 
                   {entry.pending ? (
-                    <div className="flex items-center gap-2 rounded-xl border border-border bg-card/40 px-3 py-2 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
                       <span>
                         {progress
@@ -389,12 +523,12 @@ export function AskAISection({
                       </span>
                     </div>
                   ) : entry.error ? (
-                    <div className="flex items-start gap-2 rounded-xl border border-rose-400/30 bg-rose-500/10 p-3 text-xs text-rose-100">
-                      <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
+                      <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-600" />
                       <span>{entry.error}</span>
                     </div>
                   ) : entry.result ? (
-                    <EntryResult result={entry.result} />
+                    <EntryResult result={entry.result} answer={entry.answer} />
                   ) : null}
                 </div>
               ))}
@@ -410,15 +544,15 @@ export function AskAISection({
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Contoh: Berapa anggaran irigasi dan apa saja rinciannya?"
+              placeholder="Tanyakan sesuatu tentang dokumen yang disetujui…"
               rows={2}
               maxLength={500}
               disabled={isBusy}
-              className="resize-none"
+              className="resize-none bg-card"
             />
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-[10px] text-muted-foreground">
-                Enter untuk kirim · Shift+Enter baris baru · 4 potongan teratas
+                Enter untuk kirim · Shift+Enter untuk baris baru
               </p>
               <Button
                 type="submit"
@@ -432,7 +566,7 @@ export function AskAISection({
                 ) : (
                   <Send className="h-3.5 w-3.5" />
                 )}
-                {isBusy ? "Mencari…" : "Kirim"}
+                {isBusy ? "Memproses…" : "Kirim"}
               </Button>
             </div>
           </form>

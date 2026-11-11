@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Users, Clock, FileText, ChevronRight } from "lucide-react";
+import { Users, FileText, ArrowUpRight } from "lucide-react";
 import { Project } from "@/types/project";
 import { RoleBadge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -10,19 +10,21 @@ import { useRouter } from "next/navigation";
 interface ProjectCardProps {
   project: Project;
   onClick?: (project: Project) => void;
+  /** Nomor urut kartu (01, 02, dst.) */
+  index?: number;
 }
 
-export function ProjectCard({ project, onClick }: ProjectCardProps) {
+export function ProjectCard({ project, onClick, index }: ProjectCardProps) {
   const router = useRouter();
   const handleClick = React.useCallback(() => {
-    // Kartu demo memakai handler pemanggil (sheet ringkasan); kartu Solid
-    // membuka rute detail agar proyek yang sama terbaca lagi setelah refresh.
     if (onClick) {
       onClick(project);
       return;
     }
     router.push(`/dashboard/detail/${encodeURIComponent(project.id)}`);
   }, [onClick, project, router]);
+
+  const indexLabel = index !== undefined ? String(index + 1).padStart(2, "0") : null;
 
   return (
     <article
@@ -37,47 +39,65 @@ export function ProjectCard({ project, onClick }: ProjectCardProps) {
         }
       }}
       className={cn(
-        "group relative flex flex-col justify-between rounded-xl border border-border bg-card p-5 text-left transition-all duration-150",
-        "hover:border-primary/50 hover:bg-accent/40 cursor-pointer",
+        "group relative text-left bg-[#fffefa] border border-[#dce6ce] rounded-lg overflow-hidden block cursor-pointer",
+        "hover:-translate-y-1 hover:shadow-[0_8px_22px_rgba(54,85,34,0.07)] transition-all duration-150",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       )}
     >
-      <div>
-        {/* Header: Role & Updates */}
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <RoleBadge role={project.currentUserRole} />
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Clock className="w-3.5 h-3.5" />
-            <span>{project.updatedAt}</span>
+      {/* Cover ilustrasi */}
+      <div className="relative h-[120px] bg-[#edf2e3] flex items-center justify-center overflow-hidden">
+        {/* Nomor urut */}
+        {indexLabel && (
+          <span className="absolute top-3 left-4 text-[11px] font-[550] text-[#6c7b5a] font-serif">
+            {indexLabel}
+          </span>
+        )}
+        {/* Ikon ArrowUpRight di kanan atas */}
+        <span className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity text-[#6a7b54]">
+          <ArrowUpRight className="w-4 h-4" />
+        </span>
+        {/* Ilustrasi sederhana - ikon dokumen bertumpuk */}
+        <div className="flex flex-col items-center gap-1 opacity-30">
+          <div className="w-8 h-10 border-2 border-[#6a7b54] rounded-sm relative">
+            <div className="absolute top-1 left-1.5 right-1.5 h-0.5 bg-[#6a7b54] rounded" />
+            <div className="absolute top-3 left-1.5 right-1.5 h-0.5 bg-[#6a7b54] rounded" />
+            <div className="absolute top-5 left-1.5 right-2.5 h-0.5 bg-[#6a7b54] rounded" />
           </div>
         </div>
-
-        {/* Project Name */}
-        <h3 className="text-base font-semibold text-foreground group-hover:text-primary transition-colors line-clamp-1">
-          {project.name}
-        </h3>
-
-        {/* Project Description */}
-        <p className="mt-1.5 text-xs sm:text-sm text-muted-foreground line-clamp-2 leading-relaxed">
-          {project.description}
-        </p>
+        {/* Category label */}
+        <span className="absolute bottom-3 left-4 text-[9px] tracking-widest uppercase font-semibold text-[#6a7b54]">
+          {project.currentUserRole === "Owner" ? "Workspace • Milik Saya" : "Workspace • Dibagikan"}
+        </span>
       </div>
 
-      {/* Footer Metadata */}
-      <div className="mt-5 pt-3.5 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
-        <div className="flex items-center gap-3">
-          <span className="inline-flex items-center gap-1">
-            <Users className="w-3.5 h-3.5 text-muted-foreground/70" />
-            <span>{project.members.length} anggota</span>
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <FileText className="w-3.5 h-3.5 text-muted-foreground/70" />
-            <span>{project.documentCount} dokumen</span>
-          </span>
+      {/* Body */}
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <h3 className="text-[15px] font-[500] text-foreground leading-snug line-clamp-1 group-hover:text-[#3f5028] transition-colors">
+            {project.name}
+          </h3>
+          <ArrowUpRight className="w-4 h-4 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
         </div>
-        <div className="flex items-center gap-1 text-primary font-medium opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">
-          <span>Detail</span>
-          <ChevronRight className="w-3.5 h-3.5" />
+
+        {project.description && project.description !== "Tidak ada deskripsi proyek." && (
+          <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed mb-3">
+            {project.description}
+          </p>
+        )}
+
+        {/* Footer metadata */}
+        <div className="flex items-center gap-4 mt-3 pt-3 border-t border-[#e3eada] text-[10px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1">
+            <FileText className="w-3 h-3" />
+            {project.documentCount} dokumen
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Users className="w-3 h-3" />
+            {project.members.length} anggota
+          </span>
+          <span className="ml-auto">
+            <RoleBadge role={project.currentUserRole} />
+          </span>
         </div>
       </div>
     </article>

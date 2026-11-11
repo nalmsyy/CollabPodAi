@@ -24,8 +24,6 @@ type PodListState =
 
 /**
  * Bagian "Pod saya": membaca alamat Pod dari profil Solid pengguna.
- * Pilihan Pod disimpan di PodSelectionProvider selama sesi aktif; provider
- * di-remount per WebID sehingga logout atau ganti akun mengosongkannya.
  */
 export function PodSection() {
   const { status, webId } = useSolidSession();
@@ -56,7 +54,6 @@ function PodSectionContent({ webId }: { webId: string }) {
           return;
         }
         setState({ phase: "ready", podUrls });
-        // Satu Pod langsung dipilih; beberapa Pod dibiarkan untuk dipilih pengguna.
         selectPod(podUrls.length === 1 ? podUrls[0] : null);
       })
       .catch(() => {
@@ -79,17 +76,19 @@ function PodSectionContent({ webId }: { webId: string }) {
   return (
     <section
       aria-label="Pod saya"
-      className="rounded-xl border border-border bg-card/60 p-4 sm:p-5 space-y-4"
+      className="rounded-xl border border-border bg-card p-5 space-y-4"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-2.5">
-          <div className="w-9 h-9 shrink-0 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
-            <HardDrive className="w-4 h-4" />
+          <div className="mt-0.5 h-8 w-8 shrink-0 rounded-lg bg-[#eef3e6] text-[#53643e] border border-[#dce6ce] flex items-center justify-center">
+            <HardDrive className="h-4 w-4" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Pod saya</h2>
+            <h2 className="text-xs font-semibold text-foreground uppercase tracking-wider">
+              Pod Saya
+            </h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Alamat Pod yang tercantum di profil Solid Anda.
+              Penyimpanan Solid terhubung untuk workspace dan dokumen Anda.
             </p>
           </div>
         </div>
@@ -100,6 +99,7 @@ function PodSectionContent({ webId }: { webId: string }) {
             size="sm"
             onClick={reload}
             aria-label="Muat ulang daftar Pod"
+            className="h-8 text-xs"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             Muat ulang
@@ -109,32 +109,32 @@ function PodSectionContent({ webId }: { webId: string }) {
 
       {state.phase === "loading" && (
         <div
-          className="flex items-center gap-2 text-xs text-muted-foreground"
+          className="flex items-center gap-2 text-xs text-muted-foreground py-2"
           aria-live="polite"
         >
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
           Memuat daftar Pod dari profil Solid…
         </div>
       )}
 
       {state.phase === "empty" && (
         <div
-          className="flex items-start gap-2 text-xs text-muted-foreground"
+          className="flex items-start gap-2 text-xs text-muted-foreground p-3 rounded-lg bg-muted border border-border"
           role="status"
         >
-          <ServerOff className="w-4 h-4 shrink-0 mt-0.5 text-amber-300" />
-          <span>Profil ini belum mencantumkan Pod.</span>
+          <ServerOff className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+          <span>Profil ini belum mencantumkan Pod storage.</span>
         </div>
       )}
 
       {state.phase === "error" && (
-        <div className="space-y-3" role="alert">
-          <div className="flex items-start gap-2 text-xs text-rose-300">
-            <TriangleAlert className="w-4 h-4 shrink-0 mt-0.5" />
+        <div className="space-y-3 p-3 rounded-lg bg-rose-50 border border-rose-200" role="alert">
+          <div className="flex items-start gap-2 text-xs text-rose-800">
+            <TriangleAlert className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
             <span>Gagal memuat daftar Pod</span>
           </div>
-          <Button variant="outline" size="sm" onClick={reload}>
-            <RefreshCw className="w-3.5 h-3.5" />
+          <Button variant="outline" size="sm" onClick={reload} className="h-7 text-xs">
+            <RefreshCw className="w-3 h-3" />
             Coba lagi
           </Button>
         </div>
@@ -142,19 +142,19 @@ function PodSectionContent({ webId }: { webId: string }) {
 
       {state.phase === "ready" && state.podUrls.length === 1 && (
         <div
-          className="rounded-lg border border-primary/25 bg-primary/10 p-3"
+          className="rounded-lg border border-[#dce6ce] bg-[#f8faf4] p-3 text-xs"
           aria-live="polite"
         >
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0 text-primary" />
-            <span className="text-xs font-medium text-foreground">
-              Satu Pod ditemukan dan dipilih otomatis
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-[#53643e]" />
+            <span className="font-medium text-foreground">
+              Pod terhubung dan aktif
             </span>
-            <Badge variant="teal" className="ml-auto shrink-0">
-              Dipilih
+            <Badge variant="olive" className="ml-auto shrink-0 text-[10px]">
+              Aktif
             </Badge>
           </div>
-          <code className="mt-1.5 block font-mono text-[11px] sm:text-xs break-all text-primary">
+          <code className="mt-1.5 block font-mono text-[11px] break-all text-[#53643e]">
             {state.podUrls[0]}
           </code>
         </div>
@@ -163,47 +163,44 @@ function PodSectionContent({ webId }: { webId: string }) {
       {state.phase === "ready" && state.podUrls.length > 1 && (
         <fieldset className="space-y-2">
           <legend className="text-xs text-muted-foreground mb-1">
-            {state.podUrls.length} Pod ditemukan. Pilih satu Pod untuk sesi ini.
+            {state.podUrls.length} Pod ditemukan. Pilih satu Pod untuk sesi ini:
           </legend>
-          {state.podUrls.map((podUrl) => {
-            const isSelected = selectedPodUrl === podUrl;
-            return (
-              <label
-                key={podUrl}
-                className={cn(
-                  "flex items-start gap-2.5 rounded-lg border p-3 cursor-pointer transition-colors",
-                  isSelected
-                    ? "border-primary/50 bg-primary/10"
-                    : "border-border bg-background/40 hover:bg-secondary/60"
-                )}
-              >
-                <input
-                  type="radio"
-                  name="pod-selection"
-                  className="mt-0.5 h-3.5 w-3.5 accent-[var(--primary)]"
-                  value={podUrl}
-                  checked={isSelected}
-                  onChange={() => selectPod(podUrl)}
-                />
-                <span className="min-w-0 flex-1">
-                  <code className="block font-mono text-[11px] sm:text-xs break-all text-foreground">
-                    {podUrl}
-                  </code>
-                  {isSelected && (
-                    <span className="mt-1 inline-flex items-center gap-1 text-[11px] text-primary">
-                      <CheckCircle2 className="w-3 h-3" />
-                      Dipilih untuk sesi ini
-                    </span>
+          <div className="space-y-2">
+            {state.podUrls.map((podUrl) => {
+              const isSelected = selectedPodUrl === podUrl;
+              return (
+                <label
+                  key={podUrl}
+                  className={cn(
+                    "flex items-start gap-2.5 rounded-lg border p-3 cursor-pointer transition-colors text-xs",
+                    isSelected
+                      ? "border-[#53643e] bg-[#f8faf4]"
+                      : "border-border bg-card hover:bg-muted"
                   )}
-                </span>
-              </label>
-            );
-          })}
-          <p className="text-[11px] text-muted-foreground" aria-live="polite">
-            {selectedPodUrl
-              ? "Pilihan Pod disimpan selama sesi Solid aktif di tab ini."
-              : "Pilih salah satu Pod di atas untuk melanjutkan."}
-          </p>
+                >
+                  <input
+                    type="radio"
+                    name="pod-selection"
+                    className="mt-0.5 h-3.5 w-3.5 accent-[#53643e]"
+                    value={podUrl}
+                    checked={isSelected}
+                    onChange={() => selectPod(podUrl)}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <code className="block font-mono text-[11px] break-all text-foreground">
+                      {podUrl}
+                    </code>
+                    {isSelected && (
+                      <span className="mt-1 inline-flex items-center gap-1 text-[11px] text-[#53643e] font-medium">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Dipilih untuk sesi ini
+                      </span>
+                    )}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
         </fieldset>
       )}
     </section>

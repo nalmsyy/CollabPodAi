@@ -19,7 +19,7 @@ export function MobileNav({ open, onOpenChange, onRequestLogin }: MobileNavProps
 
   const navItems = [
     {
-      label: "Proyek Saya",
+      label: "Semua proyek",
       href: "/dashboard",
       icon: FolderKanban,
       active: pathname === "/dashboard" || pathname === "/",
@@ -34,20 +34,24 @@ export function MobileNav({ open, onOpenChange, onRequestLogin }: MobileNavProps
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="left" className="p-0 flex flex-col w-[280px]">
+      <SheetContent side="left" className="p-0 flex flex-col w-[260px] bg-sidebar border-r border-border">
         {/* Brand Header */}
-        <SheetHeader className="h-16 px-6 flex flex-row items-center justify-between border-b border-border pb-0">
+        <SheetHeader className="h-16 px-5 flex flex-row items-center border-b border-border pb-0">
           <SheetTitle asChild>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center font-bold text-sm tracking-tight shadow-xs">
-                CP
-              </div>
-              <div className="flex flex-col text-left">
-                <span className="font-semibold text-foreground tracking-tight text-base leading-tight">
-                  CollabPod AI
+            <div className="flex items-center gap-2.5">
+              <div className="flex items-baseline gap-1.5">
+                <span
+                  className="text-[20px] font-bold tracking-[-1.2px] text-foreground leading-none"
+                  style={{ fontWeight: 650 }}
+                >
+                  collabpod
+                  <span style={{ color: "#6a7b54" }}>.</span>
                 </span>
-                <span className="text-[11px] text-muted-foreground font-normal">
-                  Academic Workspace
+                <span
+                  className="text-[8px] tracking-[1px] uppercase font-medium"
+                  style={{ color: "#707864" }}
+                >
+                  BETA
                 </span>
               </div>
             </div>
@@ -55,12 +59,12 @@ export function MobileNav({ open, onOpenChange, onRequestLogin }: MobileNavProps
         </SheetHeader>
 
         {/* Navigation */}
-        <div className="flex-1 px-3 py-4 space-y-6 overflow-y-auto">
-          <div>
-            <p className="px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80 mb-2">
+        <div className="flex-1 px-4 py-4 space-y-5 overflow-y-auto">
+          <div className="space-y-1">
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold mb-2 px-2">
               Ruang Kerja
             </p>
-            <nav className="space-y-1">
+            <nav className="space-y-0.5" aria-label="Navigasi mobile">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 return (
@@ -69,23 +73,18 @@ export function MobileNav({ open, onOpenChange, onRequestLogin }: MobileNavProps
                     href={item.href}
                     onClick={() => onOpenChange(false)}
                     className={cn(
-                      "relative flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors",
+                      "flex items-center gap-3 rounded-md px-3 py-2.5 text-[13px] transition-colors",
                       item.active
-                        ? "bg-secondary text-foreground font-semibold"
-                        : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                        ? "bg-[#e3e8d8] text-[#4d6037] font-[550]"
+                        : "text-[#6d785f] hover:bg-[#e9edd8]"
                     )}
                   >
-                    {item.active && (
-                      <span
-                        aria-hidden
-                        className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-[3px] rounded-r-full bg-primary"
-                      />
-                    )}
                     <Icon
                       className={cn(
-                        "w-4 h-4",
-                        item.active ? "text-primary" : "text-muted-foreground/70"
+                        "w-[16px] h-[16px] shrink-0",
+                        item.active ? "text-[#4d6037]" : "text-[#8a9a7a]"
                       )}
+                      strokeWidth={item.active ? 2 : 1.75}
                     />
                     <span>{item.label}</span>
                   </Link>
@@ -94,23 +93,23 @@ export function MobileNav({ open, onOpenChange, onRequestLogin }: MobileNavProps
             </nav>
           </div>
 
-          <div>
-            <p className="px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80 mb-2">
-              Rencana Modul
+          <div className="space-y-1">
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold mb-2 px-2">
+              Modul Berikutnya
             </p>
-            <div className="space-y-1">
+            <div className="space-y-0.5">
               {futureModules.map((item) => {
                 const Icon = item.icon;
                 return (
                   <div
                     key={item.label}
-                    className="flex items-center justify-between px-3 py-2 text-sm text-muted-foreground/60 rounded-lg cursor-not-allowed"
+                    className="flex items-center justify-between rounded-md px-3 py-2.5 text-[13px] text-muted-foreground/60 cursor-not-allowed"
                   >
                     <div className="flex items-center gap-3">
-                      <Icon className="w-4 h-4 text-muted-foreground/40" />
+                      <Icon className="w-[16px] h-[16px] shrink-0" />
                       <span>{item.label}</span>
                     </div>
-                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-secondary text-muted-foreground/80">
+                    <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
                       {item.tag}
                     </span>
                   </div>
@@ -120,15 +119,15 @@ export function MobileNav({ open, onOpenChange, onRequestLogin }: MobileNavProps
           </div>
         </div>
 
-        {/* Akun: mode demo atau sesi Solid */}
-        <SessionAccountPanel
-          className="p-4"
-          onRequestLogin={() => {
-            // Tutup drawer lebih dulu agar dialog login memegang fokus keyboard.
-            onOpenChange(false);
-            window.setTimeout(onRequestLogin, 200);
-          }}
-        />
+        {/* Akun */}
+        <div className="border-t border-border px-4 py-4">
+          <SessionAccountPanel
+            onRequestLogin={() => {
+              onOpenChange(false);
+              window.setTimeout(onRequestLogin, 200);
+            }}
+          />
+        </div>
       </SheetContent>
     </Sheet>
   );

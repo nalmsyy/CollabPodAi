@@ -29,11 +29,6 @@ interface SolidProjectsSectionProps {
 
 type ReadErrorKind = "access" | "connection";
 
-/**
- * Daftar proyek Solid untuk Pod terpilih, dibaca dari project-index.ttl privat.
- * Daftar kosong, kegagalan akses, dan kegagalan koneksi/server dibedakan;
- * daftar dibuang saat Pod berganti.
- */
 export function SolidProjectsSection({
   onProjectCreated,
 }: SolidProjectsSectionProps) {
@@ -43,8 +38,8 @@ export function SolidProjectsSection({
 
   if (!selectedPodUrl) {
     return (
-      <div className="flex flex-col items-center justify-center p-10 text-center rounded-xl border border-dashed border-border bg-card/40">
-        <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center text-primary mb-3">
+      <div className="flex flex-col items-center justify-center p-12 text-center rounded-xl border border-dashed border-[#cad5ba] bg-[#f8faf4]">
+        <div className="w-12 h-12 rounded-full bg-[#eef3e6] text-[#53643e] flex items-center justify-center mb-3">
           <HardDrive className="w-6 h-6" />
         </div>
         <h2 className="text-sm font-semibold text-foreground">
@@ -52,7 +47,7 @@ export function SolidProjectsSection({
         </h2>
         <p className="mt-1 text-xs text-muted-foreground max-w-md leading-relaxed">
           Daftar proyek dibaca dari indeks privat di Pod yang Anda pilih pada
-          bagian &ldquo;Pod saya&rdquo;.
+          bagian &ldquo;Pod Saya&rdquo;.
         </p>
       </div>
     );
@@ -67,11 +62,11 @@ export function SolidProjectsSection({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground break-all">
-          Pod: <code className="font-mono text-[11px] text-primary">{selectedPodUrl}</code>
+          Pod aktif: <code className="font-mono text-[11px] text-[#53643e] font-semibold">{selectedPodUrl}</code>
         </p>
         <Button variant="primary" onClick={() => setDialogOpen(true)}>
           <Plus className="w-4 h-4" />
-          Buat proyek
+          Proyek baru
         </Button>
       </div>
 
@@ -139,7 +134,7 @@ function ProjectsForPod({ podUrl, onCreateProject }: ProjectsForPodProps) {
   if (phase === "loading") {
     return (
       <div
-        className="flex items-center gap-2 rounded-xl border border-border bg-card/40 p-6 text-sm text-muted-foreground"
+        className="flex items-center gap-2 rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground"
         role="status"
       >
         <Loader2 className="h-4 w-4 animate-spin text-primary" />
@@ -152,22 +147,22 @@ function ProjectsForPod({ podUrl, onCreateProject }: ProjectsForPodProps) {
     const denied = errorKind === "access";
     return (
       <div
-        className="flex flex-col items-center justify-center p-10 text-center rounded-xl border border-rose-400/30 bg-rose-500/10"
+        className="flex flex-col items-center justify-center p-10 text-center rounded-xl border border-rose-200 bg-rose-50"
         role="alert"
       >
-        <div className="w-12 h-12 rounded-full bg-rose-500/15 flex items-center justify-center text-rose-300 mb-3">
+        <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center text-rose-700 mb-3">
           {denied ? (
             <ShieldAlert className="w-6 h-6" />
           ) : (
             <TriangleAlert className="w-6 h-6" />
           )}
         </div>
-        <h2 className="text-sm font-semibold text-rose-100">
+        <h2 className="text-sm font-semibold text-rose-900">
           {denied
             ? "Akses ke indeks proyek ditolak"
             : "Gagal membaca daftar proyek"}
         </h2>
-        <p className="mt-1 text-xs text-rose-200/80 max-w-md leading-relaxed">
+        <p className="mt-1 text-xs text-rose-700 max-w-md leading-relaxed">
           {denied
             ? "Server Pod menolak pembacaan indeks proyek. Pastikan Anda masih masuk sebagai pemilik Pod dan izin WAC pada collabpod/ belum berubah."
             : "Indeks proyek tidak dapat dibaca karena koneksi atau gangguan server. Tidak ada data Pod yang diubah pada percobaan ini."}
@@ -181,7 +176,7 @@ function ProjectsForPod({ podUrl, onCreateProject }: ProjectsForPodProps) {
             setReloadToken((token) => token + 1);
           }}
         >
-          <RefreshCw className="w-4 h-4" />
+          <RefreshCw className="w-3.5 h-3.5" />
           Coba lagi
         </Button>
       </div>
@@ -190,17 +185,15 @@ function ProjectsForPod({ podUrl, onCreateProject }: ProjectsForPodProps) {
 
   if (projects.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 text-center rounded-xl border border-dashed border-border bg-card/40">
-        <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center text-primary mb-3">
+      <div className="flex flex-col items-center justify-center p-12 text-center rounded-xl border border-dashed border-[#cad5ba] bg-[#f8faf4]">
+        <div className="w-12 h-12 rounded-full bg-[#eef3e6] text-[#53643e] flex items-center justify-center mb-3">
           <FolderPlus className="w-6 h-6" />
         </div>
         <h2 className="text-sm font-semibold text-foreground">
           Indeks proyek belum ada atau masih kosong
         </h2>
         <p className="mt-1 text-xs text-muted-foreground max-w-sm leading-relaxed">
-          Indeks proyek belum dibuat atau belum berisi proyek. Proyek yang Anda
-          buat akan tersimpan privat di Pod ini dan muncul kembali setelah masuk
-          ulang.
+          Proyek yang Anda buat akan tersimpan privat di Pod ini dan muncul kembali setelah masuk ulang.
         </p>
         <Button variant="primary" size="sm" className="mt-4" onClick={onCreateProject}>
           <Plus className="w-4 h-4" />
@@ -212,14 +205,15 @@ function ProjectsForPod({ podUrl, onCreateProject }: ProjectsForPodProps) {
 
   return (
     <div className="space-y-3">
-      <p role="status" className="text-xs text-emerald-200/80">
-        {projects.length} proyek terbaca dari indeks Pod.
+      <p role="status" className="text-xs text-[#53643e]">
+        {projects.length} proyek tersimpan di Pod Anda.
       </p>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {projects.map((project) => (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {projects.map((project, index) => (
           <ProjectCard
             key={`${project.podUrl}-${project.id}`}
             project={project}
+            index={index}
           />
         ))}
       </div>

@@ -44,9 +44,11 @@ function BackLink() {
   return (
     <Link
       href="/dashboard"
-      className="inline-flex items-center gap-2 text-xs font-semibold text-foreground hover:text-primary transition-colors"
+      className="inline-flex items-center gap-2 text-[11px] text-[#6c7b59] hover:text-[#4d6037] transition-colors"
     >
-      <ArrowLeft className="w-3.5 h-3.5" />
+      <svg width="14" height="14" viewBox="0 0 24 24" className="shrink-0" aria-hidden>
+        <path d="M9.414 13.414a4 4 0 015.656 0l4 4a4 4 0 01-5.656 5.656L14.414 18H4v-3.586l7.414 7.414z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
       Kembali ke proyek saya
     </Link>
   );
@@ -55,10 +57,10 @@ function BackLink() {
 function LoadingState({ label }: { readonly label: string }) {
   return (
     <div
-      className="flex flex-col items-center justify-center gap-3 py-20 text-sm text-muted-foreground"
+      className="flex flex-col items-center justify-center gap-3 py-20 text-sm text-[#6c7b59]"
       role="status"
     >
-      <Loader2 className="h-5 w-5 animate-spin text-primary" />
+      <Loader2 className="h-5 w-5 animate-spin text-[#57733b]" />
       <span>{label}</span>
     </div>
   );
@@ -73,14 +75,14 @@ function FallbackState({
 }) {
   return (
     <div
-      className="mx-auto w-full max-w-3xl space-y-4 rounded-2xl border border-rose-400/30 bg-rose-500/10 p-6 text-sm sm:p-8"
+      className="mx-auto w-full max-w-3xl space-y-4 rounded-[12px] border border-[#d8dfcd] bg-[#dde6d3]/30 p-6 text-sm sm:p-8"
       role="alert"
     >
       <div className="flex items-start gap-2.5">
-        <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-rose-300" />
+        <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-[#ae624c]" />
         <div>
-          <p className="font-semibold text-rose-100">{message}</p>
-          <p className="mt-1 text-rose-200/80">
+          <p className="font-semibold text-[#7a4a3a]">{message}</p>
+          <p className="mt-1 text-[#7a4a3a]/80">
             {hint ??
               "Kembali ke dashboard untuk melihat daftar proyek yang tersedia."}
           </p>
@@ -88,9 +90,9 @@ function FallbackState({
       </div>
       <Link
         href="/dashboard"
-        className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-transparent px-4 py-2 text-sm font-medium text-foreground shadow-xs transition-colors hover:bg-secondary sm:w-auto"
+        className="block w-full sm:w-auto rounded-[8px] border border-line bg-white px-4 py-2 text-[12px] font-medium text-[#4d6037] shadow-xs transition-colors hover:bg-[#f0f4e7]"
       >
-        <ArrowLeft className="w-3.5 h-3.5" />
+        <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
         Kembali ke proyek saya
       </Link>
     </div>
@@ -175,81 +177,89 @@ function ProjectDetail({
   }, [repository]);
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6 rounded-2xl border border-border bg-card/60 p-5 sm:p-6">
+    <div className="mx-auto w-full max-w-3xl space-y-6">
       <BackLink />
 
       {/* Header Proyek */}
-      <div className="flex items-start gap-2.5">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
-          <Lock className="h-4 w-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="teal">Proyek Privat / Solid Pod</Badge>
-            <Badge variant="outline" className="text-primary border-primary/30">
-              Penyimpanan Dokumen Aktif
-            </Badge>
-            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-              Peran Anda:
-              <RoleBadge role={role} />
-            </span>
-          </div>
-          <h1 className="mt-2 text-xl font-bold leading-tight break-words text-foreground">
-            {project.name}
+      <div className="space-y-1">
+        <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">
+          Workspace Penelitian
+        </p>
+        <div className="flex flex-col gap-1">
+          <h1 className="text-[36px] font-serif font-normal text-foreground leading-tight tracking-tight break-words">
+            {project.name}<span style={{ color: "#6a7b54" }}>.</span>
           </h1>
-          {project.description &&
-          project.description !== "Tidak ada deskripsi proyek." ? (
-            <p className="mt-2 text-sm leading-relaxed break-words text-muted-foreground">
-              {project.description}
-            </p>
-          ) : (
-            <p className="mt-2 text-sm text-muted-foreground">
-              Tidak ada deskripsi proyek.
-            </p>
-          )}
+          <p className="text-[13px] text-muted-foreground">
+            {project.description && project.description !== "Tidak ada deskripsi proyek."
+              ? project.description
+              : "Ruang penelitian bersama berbasis Solid Pod."}
+          </p>
+        </div>
+        {/* Role & badges baris kedua */}
+        <div className="flex flex-wrap items-center gap-2 pt-2">
+          <Badge variant="teal" className="text-[10px]">Solid Pod</Badge>
+          <Badge variant="olive" className="text-[10px]">Dokumen Aktif</Badge>
+          <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+            Peran Anda: <RoleBadge role={role} className="text-[9px]" />
+          </span>
         </div>
       </div>
 
       {/* Metadata Proyek */}
-      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm p-4 rounded-xl border border-border bg-card/40">
-        <div className="flex items-start gap-2.5">
-          <HardDrive className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-          <div className="min-w-0">
-            <dt className="text-muted-foreground text-xs">Pod asal proyek</dt>
-            <dd className="mt-0.5 block font-mono text-[11px] break-all text-primary">
-              {project.podUrl}
-            </dd>
+      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-0 text-sm border border-border rounded-xl overflow-hidden">
+        <div className="flex flex-col gap-2.5 p-4 border-b border-border sm:border-b sm:border-r">
+          <div className="flex items-start gap-2.5">
+            <div className="mt-0.5 h-8 w-8 shrink-0 rounded-lg bg-[#e9ede0] text-[#4d6037] border border-[#e3e6da] flex items-center justify-center">
+              <HardDrive className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <dt className="text-[11px] text-[#6c7958] font-medium">Pod asal proyek</dt>
+              <dd className="mt-0.5 block font-mono text-[11px] break-all text-[#4d6037]">
+                {project.podUrl}
+              </dd>
+            </div>
           </div>
         </div>
-        <div className="flex items-start gap-2.5">
-          <Lock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-          <div className="min-w-0">
-            <dt className="text-muted-foreground text-xs">WebID pemilik</dt>
-            <dd className="mt-0.5 block font-mono text-[11px] break-all text-primary">
-              {project.ownerWebId}
-            </dd>
+        <div className="flex flex-col gap-2.5 p-4 border-b border-border sm:border-b-0">
+          <div className="flex items-start gap-2.5">
+            <div className="mt-0.5 h-8 w-8 shrink-0 rounded-[8px] bg-[#e9ede0] text-[#4d6037] border border-[#e3e6da] flex items-center justify-center">
+              <Lock className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <dt className="text-[11px] text-[#6c7958] font-medium">WebID pemilik</dt>
+              <dd className="mt-0.5 block font-mono text-[11px] break-all text-[#4d6037]">
+                {project.ownerWebId}
+              </dd>
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-2.5 sm:col-span-2">
-          <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <dt className="text-muted-foreground text-xs">Waktu dibuat:</dt>
-          <dd className="text-foreground text-xs">{project.updatedAt}</dd>
+        <div className="flex flex-col gap-2.5 p-4 sm:col-span-2 border-t border-border">
+          <div className="flex items-start gap-2.5">
+            <div className="mt-0.5 h-8 w-8 shrink-0 rounded-[8px] bg-[#e9ede0] text-[#4d6037] border border-[#e3e6da] flex items-center justify-center">
+              <Calendar className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <dt className="text-[11px] text-[#6c7958] font-medium">Waktu dibuat:</dt>
+              <dd className="text-[11px] text-ink">{project.updatedAt}</dd>
+            </div>
+          </div>
         </div>
       </dl>
 
+
       {/* Bagian Dokumen Proyek */}
       <section className="space-y-4 pt-3 border-t border-border">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-semibold text-foreground">
+            <div className="flex items-center gap-2 mb-2">
+              <h2 className="text-[13px] font-semibold uppercase tracking-[2px] text-[#6c7c58]">
                 Dokumen Proyek
               </h2>
-              <Badge variant="secondary" className="text-xs font-mono">
+              <Badge variant="secondary" className="text-[9px] font-mono tracking-wide">
                 {documents.length} / 10 berkas
               </Badge>
             </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">
+            <p className="text-[11px] text-[#6c7d59] leading-relaxed">
               Berkas PDF dan TXT tersimpan di Pod pemilik workspace. Klik dokumen
               untuk melihat teksnya dan tandai &ldquo;Setujui untuk AI&rdquo; agar
               bisa dipakai sebagai konteks.
@@ -263,9 +273,9 @@ function ProjectDetail({
               size="sm"
               disabled={documents.length >= 10}
               onClick={() => setUploadDialogOpen(true)}
-              className="inline-flex items-center gap-1.5 self-start sm:self-auto shrink-0"
+              className="inline-flex items-center gap-1.5 self-start sm:self-auto shrink-0 h-8 px-3 text-[11px]"
             >
-              <Upload className="h-3.5 w-3.5" />
+              <Upload className="h-3.5 w-3.5 shrink-0" />
               <span>Unggah Dokumen</span>
             </Button>
           )}
@@ -306,11 +316,11 @@ function ProjectDetail({
       )}
 
       {/* Keterangan Batasan Arsitektur */}
-      <div className="rounded-xl border border-primary/25 bg-primary/10 p-4 text-xs leading-relaxed">
-        <span className="block font-semibold text-primary">
+      <div className="rounded-[10px] border border-[#dfe5d3] bg-[#eef3e5]/60 p-4 text-[11px] leading-relaxed">
+        <span className="block font-semibold text-[#4d6037]">
           Penyimpanan Dokumen Solid Pod Aktif
         </span>
-        <p className="mt-1 text-muted-foreground">
+        <p className="mt-1 text-[#667b56]">
           Owner mengelola anggota dan kebijakan AI, Editor dapat mengunggah serta
           menghapus dokumen, dan Viewer hanya membaca. Teks PDF/TXT diekstrak di
           peramban dengan pdf.js, sedangkan izin akses ditegakkan langsung oleh

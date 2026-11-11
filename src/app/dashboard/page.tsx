@@ -55,8 +55,6 @@ function DashboardView() {
   const isSolidSession = status === "signed-in";
   const isDemoSession = status === "signed-out";
 
-  // Notifikasi hanya berlaku pada mode tempat aksi dilakukan, sehingga tidak
-  // terbawa ke mode lain setelah logout atau login.
   const visibleFeedback = React.useMemo(() => {
     if (!feedbackMessage) return null;
     return feedbackMessage.scope === (isSolidSession ? "solid" : "demo")
@@ -64,7 +62,6 @@ function DashboardView() {
       : null;
   }, [feedbackMessage, isSolidSession]);
 
-  // Data demo hanya dimuat selama mode demo (tanpa sesi Solid).
   React.useEffect(() => {
     if (!isDemoSession) return;
     let isMounted = true;
@@ -78,7 +75,6 @@ function DashboardView() {
     };
   }, [isDemoSession]);
 
-  // Handler submit pembuatan proyek demo baru
   const handleCreateProject = async (input: CreateProjectInput) => {
     const newProj = await demoProjectRepository.createProject(input);
     setProjects((prev) => [newProj, ...prev]);
@@ -95,7 +91,6 @@ function DashboardView() {
     });
   };
 
-  // Hitung jumlah untuk tab filter
   const counts = React.useMemo(() => {
     const all = projects.length;
     const mine = projects.filter((p) => p.currentUserRole === "Owner").length;
@@ -103,32 +98,24 @@ function DashboardView() {
     return { all, mine, shared };
   }, [projects]);
 
-  // Filter daftar proyek berdasarkan pencarian dan tab
   const filteredProjects = React.useMemo(() => {
     return projects.filter((project) => {
-      // Filter tab
-      if (activeFilter === "mine" && project.currentUserRole !== "Owner") {
-        return false;
-      }
-      if (activeFilter === "shared" && project.currentUserRole === "Owner") {
-        return false;
-      }
-
-      // Filter nama proyek
+      if (activeFilter === "mine" && project.currentUserRole !== "Owner") return false;
+      if (activeFilter === "shared" && project.currentUserRole === "Owner") return false;
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase().trim();
-        const matchesName = project.name.toLowerCase().includes(query);
-        const matchesDesc = project.description.toLowerCase().includes(query);
-        return matchesName || matchesDesc;
+        return (
+          project.name.toLowerCase().includes(query) ||
+          project.description.toLowerCase().includes(query)
+        );
       }
-
       return true;
     });
   }, [projects, activeFilter, searchQuery]);
 
   return (
     <div className="min-h-screen flex bg-background text-foreground">
-      {/* Sidebar Desktop (~240px) */}
+      {/* Sidebar Desktop */}
       <Sidebar
         className="hidden md:flex shrink-0"
         onRequestLogin={() => setLoginDialogOpen(true)}
@@ -142,141 +129,144 @@ function DashboardView() {
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex flex-col flex-1 min-w-0">
         <Header onOpenMobileNav={() => setMobileNavOpen(true)} />
 
         <PodSelectionProvider key={webId ?? "signed-out"}>
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-6xl w-full mx-auto space-y-6">
-          {/* Banner Mode Demo (hanya tanpa sesi Solid) */}
-          {isDemoSession && (
-            <Alert variant="info" className="border-primary/25 bg-primary/10 shadow-xs">
-              <ShieldAlert className="h-5 w-5 text-primary mt-0.5" />
-              <div className="flex-1">
-                <AlertTitle className="text-foreground font-semibold text-sm">
-                  Mode demo aktif • Data belum terhubung ke Solid Pod
-                </AlertTitle>
-                <AlertDescription className="text-muted-foreground text-xs sm:text-sm mt-0.5">
-                  Semua interaksi dan perubahan data pada tahap ini bersifat lokal di memori
-                  peramban dan akan hilang saat halaman dimuat ulang. Tidak ada database terpusat
-                  atau autentikasi mock yang menggantikan Solid Protocol.
-                </AlertDescription>
-              </div>
-            </Alert>
-          )}
+          <main className="flex-1 px-6 sm:px-9 py-8 max-w-6xl w-full mx-auto space-y-7">
 
-          {/* Banner Sesi Solid Aktif */}
-          {isSolidSession && (
-            <Alert variant="info" className="border-primary/25 bg-primary/10 shadow-xs">
-              <ShieldCheck className="h-5 w-5 text-primary mt-0.5" />
-              <div className="flex-1">
-                <AlertTitle className="text-foreground font-semibold text-sm">
-                  Sesi Solid aktif • WebID terverifikasi
-                </AlertTitle>
-                <AlertDescription className="text-muted-foreground text-xs sm:text-sm mt-0.5">
-                  <span className="block">Masuk melalui penyedia identitas Solid sebagai:</span>
-                  <code className="mt-1 block font-mono text-[11px] sm:text-xs break-all text-primary">
-                    {webId ?? "WebID tidak tersedia pada sesi ini"}
-                  </code>
-                  <span className="mt-1 block">
-                    Proyek privat disimpan di Pod terpilih. Mode demo disembunyikan
-                    selama sesi Solid aktif.
-                  </span>
-                </AlertDescription>
-              </div>
-            </Alert>
-          )}
-
-          {/* Bagian Pod saya (hanya dengan sesi Solid) */}
-          {isSolidSession && <PodSection />}
-
-          {/* Feedback Notifikasi Aksi */}
-          {visibleFeedback && (
-            <div
-              role="status"
-              className="flex items-center justify-between p-3.5 rounded-xl border border-emerald-400/30 bg-emerald-500/10 text-emerald-100 text-xs sm:text-sm shadow-xs animate-in fade-in duration-200"
-            >
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
-                <span className="font-medium">{visibleFeedback}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setFeedbackMessage(null)}
-                className="text-emerald-300 hover:text-emerald-100 p-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label="Tutup notifikasi"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {/* Header Konten: Judul & Tombol Aksi */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                Proyek saya
-              </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Ruang kolaborasi tugas dan riset kelompok berbasis izin Solid Pod dan AI tepercaya.
+            {/* Page heading */}
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">
+                {isSolidSession ? "Workspace Solid" : "Workspace Demo"}
               </p>
+              <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+                <div>
+                  <h1 className="text-[36px] font-serif font-normal text-foreground leading-tight tracking-tight">
+                    Ruang untuk berkarya.
+                  </h1>
+                  <p className="text-[13px] text-muted-foreground mt-1">
+                    Temukan kembali pekerjaanmu, lanjutkan bersama tim.
+                  </p>
+                </div>
+                {isDemoSession && (
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    onClick={() => setCreateDialogOpen(true)}
+                    className="self-start sm:self-auto"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Proyek baru
+                  </Button>
+                )}
+              </div>
             </div>
 
+            {/* Banner Mode Demo */}
             {isDemoSession && (
-              <Button
-                variant="primary"
-                onClick={() => setCreateDialogOpen(true)}
-                className="self-start sm:self-auto"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Buat proyek demo</span>
-              </Button>
+              <Alert variant="info" className="border-primary/20 bg-primary/5">
+                <ShieldAlert className="h-4 w-4 text-primary mt-0.5" />
+                <div className="flex-1">
+                  <AlertTitle className="text-foreground font-semibold text-sm">
+                    Mode demo aktif • Data belum terhubung ke Solid Pod
+                  </AlertTitle>
+                  <AlertDescription className="text-muted-foreground text-xs mt-0.5">
+                    Semua interaksi bersifat lokal di peramban dan hilang saat halaman dimuat ulang.
+                  </AlertDescription>
+                </div>
+              </Alert>
             )}
-          </div>
 
-          {/* Area Filter & Pencarian (khusus mode demo) */}
-          {isDemoSession && (
-            <ProjectFilter
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-              activeFilter={activeFilter}
-              onFilterChange={setActiveFilter}
-              counts={counts}
-            />
-          )}
+            {/* Banner Sesi Solid Aktif */}
+            {isSolidSession && (
+              <Alert variant="info" className="border-primary/20 bg-primary/5">
+                <ShieldCheck className="h-4 w-4 text-primary mt-0.5" />
+                <div className="flex-1">
+                  <AlertTitle className="text-foreground font-semibold text-sm">
+                    Sesi Solid aktif • WebID terverifikasi
+                  </AlertTitle>
+                  <AlertDescription className="text-muted-foreground text-xs mt-0.5">
+                    <code className="font-mono text-[11px] break-all text-primary">
+                      {webId ?? "WebID tidak tersedia"}
+                    </code>
+                  </AlertDescription>
+                </div>
+              </Alert>
+            )}
 
-          {/* Daftar Proyek */}
-          <section aria-label="Daftar Proyek">
-            {isRestoring && (
-              <div className="flex items-center gap-2 rounded-xl border border-border bg-card/40 p-6 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                Memeriksa sesi Solid…
+            {/* Bagian Pod saya */}
+            {isSolidSession && <PodSection />}
+
+            {/* Feedback Notifikasi */}
+            {visibleFeedback && (
+              <div
+                role="status"
+                className="flex items-center justify-between px-4 py-3 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-900 text-xs sm:text-sm shadow-xs"
+              >
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-medium">{visibleFeedback}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFeedbackMessage(null)}
+                  className="text-emerald-600 hover:text-emerald-800 p-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label="Tutup notifikasi"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             )}
 
-            {isSolidSession && (
-              <SolidProjectsSection
-                onProjectCreated={handleSolidProjectCreated}
+            {/* Filter & Pencarian (hanya mode demo) */}
+            {isDemoSession && (
+              <ProjectFilter
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                activeFilter={activeFilter}
+                onFilterChange={setActiveFilter}
+                counts={counts}
               />
             )}
 
-            {isDemoSession && (
-              <ProjectList
-                projects={filteredProjects}
-                searchQuery={searchQuery}
-                onClearSearch={() => setSearchQuery("")}
-                onSelectProject={(proj) => setSelectedProject(proj)}
-                onCreateProject={() => setCreateDialogOpen(true)}
-              />
-            )}
-          </section>
-        </main>
+            {/* Daftar Proyek */}
+            <section aria-label="Daftar Proyek">
+              {isRestoring && (
+                <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 p-6 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  Memeriksa sesi Solid…
+                </div>
+              )}
+
+              {isSolidSession && (
+                <SolidProjectsSection onProjectCreated={handleSolidProjectCreated} />
+              )}
+
+              {isDemoSession && (
+                <ProjectList
+                  projects={filteredProjects}
+                  searchQuery={searchQuery}
+                  onClearSearch={() => setSearchQuery("")}
+                  onSelectProject={(proj) => setSelectedProject(proj)}
+                  onCreateProject={() => setCreateDialogOpen(true)}
+                />
+              )}
+            </section>
+          </main>
+
+          {/* Footer */}
+          <footer className="border-t border-border py-4 px-6 sm:px-9 flex items-center justify-between text-[9px] text-muted-foreground">
+            <span className="uppercase tracking-widest font-semibold">COLLABPOD</span>
+            <span>Tempat ide menjadi kerja bersama.</span>
+          </footer>
         </PodSelectionProvider>
       </div>
 
-      {/* Dialog Masuk dengan Solid */}
+      {/* Dialog Masuk */}
       <SolidLoginDialog open={loginDialogOpen} onOpenChange={setLoginDialogOpen} />
 
-      {/* Dialog Pembuatan Proyek Baru (mode demo) */}
+      {/* Dialog Pembuatan Proyek Demo */}
       {isDemoSession && (
         <CreateProjectDialog
           open={createDialogOpen}
@@ -285,7 +275,7 @@ function DashboardView() {
         />
       )}
 
-      {/* Sheet Pratinjau Ringkasan Proyek */}
+      {/* Sheet Pratinjau Proyek */}
       <ProjectSummarySheet
         project={selectedProject}
         open={!!selectedProject}

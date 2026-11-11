@@ -54,7 +54,6 @@ export function SolidLoginDialog({ open, onOpenChange }: SolidLoginDialogProps) 
     setSubmitting(true);
 
     try {
-      // Berhasil berarti browser sudah dialihkan ke halaman penyedia identitas.
       await signIn(validation.issuer);
     } catch {
       setError(
@@ -66,17 +65,18 @@ export function SolidLoginDialog({ open, onOpenChange }: SolidLoginDialogProps) 
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[460px]">
+      <DialogContent className="sm:max-w-[460px] p-6 bg-[#fffefa] border border-[#dce6ce] rounded-2xl">
         <DialogHeader>
-          <DialogTitle>Masuk dengan Solid</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-2xl font-serif font-normal text-foreground">
+            Masuk dengan Solid
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
             Pilih penyedia identitas Solid Anda. Proses masuk berlangsung di
-            halaman penyedia tersebut; CollabPod AI tidak menerima kata sandi
-            Anda.
+            halaman penyedia tersebut; CollabPod AI tidak menerima kata sandi Anda.
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4 py-2">
+        <form onSubmit={handleSubmit} className="space-y-4 pt-1">
           <div className="space-y-1.5">
             <span className="text-xs font-semibold text-foreground block">
               Penyedia identitas umum
@@ -94,10 +94,10 @@ export function SolidLoginDialog({ open, onOpenChange }: SolidLoginDialogProps) 
                       setError(null);
                     }}
                     className={cn(
-                      "rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
+                      "rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors select-none",
                       isSelected
-                        ? "border-primary bg-primary/15 text-foreground ring-1 ring-primary"
-                        : "border-border bg-background/40 text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                        ? "border-[#53643e] bg-[#edf2e4] text-[#4d6037] font-semibold"
+                        : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
                     )}
                   >
                     {provider.label}
@@ -126,15 +126,15 @@ export function SolidLoginDialog({ open, onOpenChange }: SolidLoginDialogProps) 
                 setIssuer(event.target.value);
                 if (error) setError(null);
               }}
-              error={!!error}
               aria-describedby={error ? "solid-issuer-error" : "solid-issuer-hint"}
               autoFocus
+              className={error ? "border-rose-400" : ""}
             />
             {error ? (
               <p
                 id="solid-issuer-error"
                 role="alert"
-                className="text-xs text-rose-300 leading-snug"
+                className="text-xs text-rose-700 leading-snug"
               >
                 {error}
               </p>
@@ -143,27 +143,26 @@ export function SolidLoginDialog({ open, onOpenChange }: SolidLoginDialogProps) 
                 id="solid-issuer-hint"
                 className="text-[11px] text-muted-foreground leading-snug"
               >
-                Contoh: https://solidcommunity.net atau http://localhost:3001
-                untuk server Solid lokal.
+                Contoh: https://solidcommunity.net atau http://localhost:3001 untuk server Solid lokal.
               </p>
             )}
           </div>
 
-          <div className="rounded-lg bg-primary/10 p-2.5 border border-primary/25 text-[11px] text-muted-foreground leading-normal">
-            <strong className="font-semibold text-foreground">Catatan:</strong>{" "}
-            Setelah masuk, dashboard menampilkan WebID Anda. Penyimpanan proyek
-            ke Pod belum aktif pada tahap ini.
+          <div className="rounded-xl bg-[#edf2e4] p-3 border border-[#dce6ce] text-[11px] text-[#53643e] leading-relaxed">
+            <strong className="font-semibold text-[#374426]">Catatan privasi:</strong>{" "}
+            Sesi dan token Solid dikelola langsung di peramban pengguna. Semua akses ke Pod menggunakan WAC standar Solid Protocol.
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-2 sm:gap-0 pt-2">
             <Button
               type="button"
               variant="outline"
+              size="sm"
               onClick={() => handleOpenChange(false)}
             >
               Batal
             </Button>
-            <Button type="submit" variant="primary" disabled={submitting}>
+            <Button type="submit" variant="primary" size="sm" disabled={submitting}>
               <LogIn className="w-4 h-4" />
               {submitting ? "Mengalihkan…" : "Lanjutkan ke penyedia"}
             </Button>
