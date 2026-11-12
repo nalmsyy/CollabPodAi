@@ -450,7 +450,7 @@ test("unggah oleh non-owner melempar SolidDocumentAccessDeniedError", async () =
 });
 
 // 12. Status persetujuan AI disimpan ke metadata dokumen
-test("persetujuan AI tersimpan di metadata dan terbaca saat daftar dimuat", async () => {
+test("persetujuan AI tersimpan di config Owner dan terbaca saat daftar dimuat", async () => {
   const fake = createFakeDocPod();
   const repo = new SolidDocumentRepository({
     workspaceUrl: WORKSPACE_URL,
@@ -578,4 +578,24 @@ test("non-owner tidak dapat mengubah persetujuan AI atau menghapus dokumen", asy
     () => viewerRepo.deleteDocument(doc),
     (err) => err instanceof SolidDocumentAccessDeniedError && err.status === 403
   );
+});
+
+
+test('flag metadata tidak memberi izin AI; policy dan hash aktual wajib cocok', async () => {
+  const fake=createFakeDocPod();
+  const repo=new SolidDocumentRepository({workspaceUrl:WORKSPACE_URL,webId:WEB_ID,ownerWebId:WEB_ID,fetch:fake.fetch});
+  const bytes=new TextEncoder().encode('Isi yang ditinjau Owner').buffer;
+  const doc=await repo.uploadDocument({name:'uji.txt',size:bytes.byteLength,type:'text/plain',arrayBuffer:async()=>bytes});
+  const metadata=fake.resources.get(doc.metadataUrl);
+  metadata.body=String(metadata.body).replace(/aiApproved> false/,'aiApproved> true').replace(/aiApproved false/,'aiApproved true');
+  assert.equal((await repo.listDocuments()).documents[0].aiApproved,false);
+  await assert.rejects(()=>repo.fetchApprovedDocumentBytes(doc),/Persetujuan/);
+  await repo.setAiApproved(doc,true);
+  assert.ok(fake.resources.has(`${WORKSPACE_URL}config/ai-policy/${doc.id}.ttl`));
+  assert.deepEqual(await repo.fetchApprovedDocumentBytes(doc),bytes);
+  fake.resources.get(doc.fileUrl).body=new TextEncoder().encode('Isi telah diganti Editor').buffer;
+  await assert.rejects(()=>repo.fetchApprovedDocumentBytes(doc),/Isi dokumen berubah/);
+  await assert.rejects(()=>repo.setAiApproved(doc,true),/Dokumen berubah/);
+  await repo.setAiApproved(doc,false);
+  assert.equal((await repo.listDocuments()).documents[0].aiApproved,false);
 });
