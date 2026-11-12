@@ -212,12 +212,12 @@ export interface TextChunkDraft {
  */
 export function chunkDocumentText(
   pages: ExtractedDocumentPage[],
-  options?: { targetWords?: number; maxWords?: number }
+  options?: { targetWords?: number; maxWords?: number },
 ): TextChunkDraft[] {
   const maxWords = Math.max(50, options?.maxWords ?? DEFAULT_CHUNK_MAX_WORDS);
   const targetWords = Math.min(
     maxWords,
-    Math.max(50, options?.targetWords ?? DEFAULT_CHUNK_TARGET_WORDS)
+    Math.max(50, options?.targetWords ?? DEFAULT_CHUNK_TARGET_WORDS),
   );
 
   const chunks: TextChunkDraft[] = [];
@@ -288,7 +288,7 @@ export function clearRetrievalCache(): void {
 function chunkCacheKey(
   document: ProjectDocument,
   targetWords: number,
-  maxWords: number
+  maxWords: number,
 ): string {
   // URL berkas memuat Pod + workspace, sehingga Proyek dengan ID sama di Pod
   // berbeda tidak pernah berbagi chunk.
@@ -297,15 +297,15 @@ function chunkCacheKey(
 
 function projectCacheKey(
   projectId: string,
-  repository: SolidDocumentRepository
+  repository: SolidDocumentRepository,
 ): string {
-  return `${projectId}|${repository.documentsContainerUrl}`;
+  return `${projectId}|${repository.documentsContainerUrl}|${repository.retrievalIdentity ?? ""}`;
 }
 
 function contextSignature(
   approved: ProjectDocument[],
   targetWords: number,
-  maxWords: number
+  maxWords: number,
 ): string {
   const documents = approved
     .map((doc) => `${doc.id}:${doc.sha256}`)
@@ -323,26 +323,31 @@ function contextSignature(
  */
 export async function getApprovedContexts(
   projectId: string,
-  options: ApprovedContextOptions
+  options: ApprovedContextOptions,
 ): Promise<ApprovedContextResult> {
   const targetWords = Math.max(
     50,
-    options.chunkTargetWords ?? DEFAULT_CHUNK_TARGET_WORDS
+    options.chunkTargetWords ?? DEFAULT_CHUNK_TARGET_WORDS,
   );
   const maxWords = Math.max(
     targetWords,
-    options.chunkMaxWords ?? DEFAULT_CHUNK_MAX_WORDS
+    options.chunkMaxWords ?? DEFAULT_CHUNK_MAX_WORDS,
   );
 
   const list = await options.repository.listDocuments();
   const approvedDocuments = list.documents.filter(
-    (document) => document.isComplete && document.aiApproved
+    (document) => document.isComplete && document.aiApproved,
   );
 
   const signature = contextSignature(approvedDocuments, targetWords, maxWords);
   const cacheKey = projectCacheKey(projectId, options.repository);
   const cached = projectCache.get(cacheKey);
-  if (!options.force && cached && cached.signature === signature) {
+  if (
+    !options.repository.fetchApprovedDocumentBytes &&
+    !options.force &&
+    cached &&
+    cached.signature === signature
+  ) {
     return { ...cached.result, fromCache: true };
   }
 
@@ -360,10 +365,16 @@ export async function getApprovedContexts(
     const cacheKey = chunkCacheKey(document, targetWords, maxWords);
     let drafts = chunkCache.get(cacheKey);
 
-    if (!drafts) {
-      try {
+    try {
+      // Even when text is cached, re-check access, consent and actual bytes.
+      const approvedBytes = options.repository.fetchApprovedDocumentBytes
+        ? await options.repository.fetchApprovedDocumentBytes(document)
+        : null;
+      if (!drafts) {
         const extracted = await extractDocumentText(document, () =>
-          options.repository.fetchDocumentBytes(document)
+          approvedBytes
+            ? Promise.resolve(approvedBytes)
+            : options.repository.fetchDocumentBytes(document),
         );
 
         if (!extracted.hasText) {
@@ -381,20 +392,23 @@ export async function getApprovedContexts(
           maxWords,
         });
         chunkCache.set(cacheKey, drafts);
-      } catch (error) {
-        skipped.push({
-          documentId: document.id,
-          documentName: document.name,
-          reason:
-            error instanceof Error
-              ? error.message
-              : "Teks dokumen tidak dapat diekstrak.",
-        });
-        continue;
       }
+    } catch (error) {
+      const access = error as { status?: number; statusCode?: number };
+      if ([401, 403].includes(access.status ?? access.statusCode ?? 0))
+        throw error;
+      skipped.push({
+        documentId: document.id,
+        documentName: document.name,
+        reason:
+          error instanceof Error
+            ? error.message
+            : "Teks dokumen tidak dapat diekstrak.",
+      });
+      continue;
     }
 
-    drafts.forEach((draft, chunkIndex) => {
+    drafts!.forEach((draft, chunkIndex) => {
       chunks.push({
         id: `${document.id}#chunk-${chunkIndex + 1}`,
         documentId: document.id,
@@ -427,7 +441,7 @@ export async function getApprovedContexts(
 export function searchChunks(
   query: string,
   chunks: DocumentChunk[],
-  options?: { topK?: number }
+  options?: { topK?: number },
 ): ScoredChunk[] {
   const queryTerms = [...new Set(tokenize(query))];
   if (queryTerms.length === 0 || chunks.length === 0) {
@@ -436,7 +450,7 @@ export function searchChunks(
 
   const topK = Math.min(
     MAX_TOP_K,
-    Math.max(MIN_TOP_K, options?.topK ?? DEFAULT_TOP_K)
+    Math.max(MIN_TOP_K, options?.topK ?? DEFAULT_TOP_K),
   );
 
   const k1 = 1.5;
@@ -479,9 +493,9 @@ export function searchChunks(
       const denominator =
         termFrequency +
         k1 *
-        (1 -
-          lengthNormalization +
-          (lengthNormalization * item.length) / averageLength);
+          (1 -
+            lengthNormalization +
+            (lengthNormalization * item.length) / averageLength);
 
       score += idf * ((termFrequency * (k1 + 1)) / denominator);
       matchedTerms.push(term);
@@ -503,12 +517,12 @@ export function searchChunks(
 export async function searchApprovedContexts(
   projectId: string,
   query: string,
-  options: SearchApprovedContextsOptions
+  options: SearchApprovedContextsOptions,
 ): Promise<ContextSearchResult> {
   const context = await getApprovedContexts(projectId, options);
   const topK = Math.min(
     MAX_TOP_K,
-    Math.max(MIN_TOP_K, options.topK ?? DEFAULT_TOP_K)
+    Math.max(MIN_TOP_K, options.topK ?? DEFAULT_TOP_K),
   );
 
   return {

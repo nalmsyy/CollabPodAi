@@ -3,6 +3,7 @@ import {
   buildSystemInstruction,
   buildUserPrompt,
   parseAskRequest,
+  validateAnswerCitations,
 } from "@/lib/ai-gateway";
 
 /**
@@ -19,7 +20,7 @@ const MAX_BODY_BYTES = 128 * 1024;
 function jsonResponse(
   body: unknown,
   status: number,
-  extraHeaders?: Record<string, string>
+  extraHeaders?: Record<string, string>,
 ): Response {
   return Response.json(body, {
     status,
@@ -33,7 +34,7 @@ function jsonResponse(
 function errorResponse(
   status: number,
   code: string,
-  message: string
+  message: string,
 ): Response {
   return jsonResponse({ error: { code, message } }, status);
 }
@@ -127,7 +128,7 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       403,
       "forbidden_origin",
-      "Permintaan hanya diizinkan dari aplikasi ini."
+      "Permintaan hanya diizinkan dari aplikasi ini.",
     );
   }
 
@@ -136,7 +137,7 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       413,
       "payload_too_large",
-      "Body permintaan terlalu besar."
+      "Body permintaan terlalu besar.",
     );
   }
 
@@ -147,7 +148,7 @@ export async function POST(request: Request): Promise<Response> {
       return errorResponse(
         413,
         "payload_too_large",
-        "Body permintaan terlalu besar."
+        "Body permintaan terlalu besar.",
       );
     }
     payload = JSON.parse(rawBody);
@@ -155,7 +156,7 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       400,
       "invalid_json",
-      "Body permintaan harus berupa JSON yang valid."
+      "Body permintaan harus berupa JSON yang valid.",
     );
   }
 
@@ -164,7 +165,7 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       validation.status,
       validation.code,
-      validation.message
+      validation.message,
     );
   }
 
@@ -173,7 +174,7 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       503,
       "missing_api_key",
-      "GEMINI_API_KEY belum diset di server. Tambahkan nilainya ke .env.local lalu restart server."
+      "GEMINI_API_KEY belum diset di server. Tambahkan nilainya ke .env.local lalu restart server.",
     );
   }
 
@@ -193,9 +194,7 @@ export async function POST(request: Request): Promise<Response> {
         systemInstruction: buildSystemInstruction(),
         temperature: 0.2,
         maxOutputTokens: 2048,
-        ...(disableThinking
-          ? { thinkingConfig: { thinkingBudget: 0 } }
-          : {}),
+        ...(disableThinking ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
         abortSignal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       },
     });
@@ -216,10 +215,17 @@ export async function POST(request: Request): Promise<Response> {
       blocked ? "gemini_blocked" : "gemini_empty_response",
       blocked
         ? `Gemini memblokir permintaan (alasan: ${blocked}). Coba ubah pertanyaan Anda.`
-        : "Gemini tidak mengembalikan teks jawaban. Coba lagi."
+        : "Gemini tidak mengembalikan teks jawaban. Coba lagi.",
     );
   }
 
+  if (!validateAnswerCitations(answer, contexts.length)) {
+    return errorResponse(
+      502,
+      "invalid_citations",
+      "Jawaban AI belum memiliki rujukan yang valid. Coba lagi; jawaban tersebut tidak disimpan sebagai konteks tim.",
+    );
+  }
   const usage = response.usageMetadata;
   return jsonResponse(
     {
@@ -233,6 +239,6 @@ export async function POST(request: Request): Promise<Response> {
           }
         : null,
     },
-    200
+    200,
   );
 }

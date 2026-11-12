@@ -334,3 +334,17 @@ test("searchApprovedContexts mengembalikan chunks kosong bila tidak ada kecocoka
   assert.deepEqual(result.chunks, []);
   assert.equal(result.totalChunks, 1);
 });
+
+
+test('cache teks tetap memeriksa izin dan versi sebelum digunakan kembali', async () => {
+  clearRetrievalCache();
+  let denied=false; let verified=0;
+  const repo=createFakeRepository([{document:makeDoc({id:'secure'}),text:'Kualitas air dan pH sungai.'}]);
+  repo.retrievalIdentity='workspace-one|alice';
+  repo.fetchApprovedDocumentBytes=async()=>{verified++;if(denied)throw Object.assign(new Error('Akses dicabut'),{status:403});return new TextEncoder().encode('Kualitas air dan pH sungai.').buffer;};
+  assert.equal((await getApprovedContexts('p1',{repository:repo})).chunks.length,1);
+  assert.equal((await getApprovedContexts('p1',{repository:repo})).chunks.length,1);
+  assert.equal(verified,2);
+  denied=true;await assert.rejects(()=>getApprovedContexts('p1',{repository:repo}),/Akses dicabut/);
+  clearRetrievalCache();
+});
