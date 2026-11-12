@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import {
   Plus,
   ShieldAlert,
@@ -17,7 +18,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ProjectFilter } from "@/components/projects/project-filter";
 import { ProjectList } from "@/components/projects/project-list";
 import { CreateProjectDialog } from "@/components/projects/create-project-dialog";
-import { ProjectSummarySheet } from "@/components/projects/project-summary-sheet";
 import {
   SolidSessionProvider,
   useSolidSession,
@@ -27,7 +27,11 @@ import { PodSection } from "@/components/pods/pod-section";
 import { PodSelectionProvider } from "@/components/pods/pod-selection-provider";
 import { SolidProjectsSection } from "@/components/projects/solid-projects-section";
 import { demoProjectRepository } from "@/lib/project-storage";
-import { CreateProjectInput, Project, ProjectFilterType } from "@/types/project";
+import {
+  CreateProjectInput,
+  Project,
+  ProjectFilterType,
+} from "@/types/project";
 
 export default function DashboardPage() {
   return (
@@ -38,14 +42,15 @@ export default function DashboardPage() {
 }
 
 function DashboardView() {
+  const router = useRouter();
   const { status, webId } = useSolidSession();
   const [loginDialogOpen, setLoginDialogOpen] = React.useState(false);
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
   const [projects, setProjects] = React.useState<Project[]>([]);
   const [searchQuery, setSearchQuery] = React.useState("");
-  const [activeFilter, setActiveFilter] = React.useState<ProjectFilterType>("all");
+  const [activeFilter, setActiveFilter] =
+    React.useState<ProjectFilterType>("all");
   const [createDialogOpen, setCreateDialogOpen] = React.useState(false);
-  const [selectedProject, setSelectedProject] = React.useState<Project | null>(null);
   const [feedbackMessage, setFeedbackMessage] = React.useState<{
     text: string;
     scope: "demo" | "solid";
@@ -100,8 +105,10 @@ function DashboardView() {
 
   const filteredProjects = React.useMemo(() => {
     return projects.filter((project) => {
-      if (activeFilter === "mine" && project.currentUserRole !== "Owner") return false;
-      if (activeFilter === "shared" && project.currentUserRole === "Owner") return false;
+      if (activeFilter === "mine" && project.currentUserRole !== "Owner")
+        return false;
+      if (activeFilter === "shared" && project.currentUserRole === "Owner")
+        return false;
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase().trim();
         return (
@@ -134,7 +141,6 @@ function DashboardView() {
 
         <PodSelectionProvider key={webId ?? "signed-out"}>
           <main className="flex-1 px-6 sm:px-9 py-8 max-w-6xl w-full mx-auto space-y-7">
-
             {/* Page heading */}
             <div className="space-y-1">
               <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">
@@ -172,7 +178,8 @@ function DashboardView() {
                     Mode demo aktif • Data belum terhubung ke Solid Pod
                   </AlertTitle>
                   <AlertDescription className="text-muted-foreground text-xs mt-0.5">
-                    Semua interaksi bersifat lokal di peramban dan hilang saat halaman dimuat ulang.
+                    Data demo tersimpan di browser ini. Hubungkan Solid Pod
+                    untuk berkolaborasi dengan anggota lain.
                   </AlertDescription>
                 </div>
               </Alert>
@@ -240,7 +247,9 @@ function DashboardView() {
               )}
 
               {isSolidSession && (
-                <SolidProjectsSection onProjectCreated={handleSolidProjectCreated} />
+                <SolidProjectsSection
+                  onProjectCreated={handleSolidProjectCreated}
+                />
               )}
 
               {isDemoSession && (
@@ -248,7 +257,11 @@ function DashboardView() {
                   projects={filteredProjects}
                   searchQuery={searchQuery}
                   onClearSearch={() => setSearchQuery("")}
-                  onSelectProject={(proj) => setSelectedProject(proj)}
+                  onSelectProject={(proj) =>
+                    router.push(
+                      `/dashboard/detail/${encodeURIComponent(proj.id)}?demo=1`,
+                    )
+                  }
                   onCreateProject={() => setCreateDialogOpen(true)}
                 />
               )}
@@ -257,14 +270,19 @@ function DashboardView() {
 
           {/* Footer */}
           <footer className="border-t border-border py-4 px-6 sm:px-9 flex items-center justify-between text-[9px] text-muted-foreground">
-            <span className="uppercase tracking-widest font-semibold">COLLABPOD</span>
+            <span className="uppercase tracking-widest font-semibold">
+              COLLABPOD
+            </span>
             <span>Tempat ide menjadi kerja bersama.</span>
           </footer>
         </PodSelectionProvider>
       </div>
 
       {/* Dialog Masuk */}
-      <SolidLoginDialog open={loginDialogOpen} onOpenChange={setLoginDialogOpen} />
+      <SolidLoginDialog
+        open={loginDialogOpen}
+        onOpenChange={setLoginDialogOpen}
+      />
 
       {/* Dialog Pembuatan Proyek Demo */}
       {isDemoSession && (
@@ -274,15 +292,6 @@ function DashboardView() {
           onSubmit={handleCreateProject}
         />
       )}
-
-      {/* Sheet Pratinjau Proyek */}
-      <ProjectSummarySheet
-        project={selectedProject}
-        open={!!selectedProject}
-        onOpenChange={(open) => {
-          if (!open) setSelectedProject(null);
-        }}
-      />
     </div>
   );
 }

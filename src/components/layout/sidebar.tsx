@@ -13,7 +13,7 @@ interface SidebarProps {
 }
 
 /** Logo mark CollabPod — tiga daun miring seperti referensi */
-function BrandMark({ className }: { className?: string }) {
+export function BrandMark({ className }: { className?: string }) {
   return (
     <span
       className={cn("relative inline-block w-7 h-7 shrink-0", className)}

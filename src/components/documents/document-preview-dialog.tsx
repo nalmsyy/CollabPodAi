@@ -54,8 +54,8 @@ export function DocumentPreviewDialog({
             </Badge>
           </div>
           <DialogDescription className="text-[11px] text-[#667b56] leading-relaxed">
-            Teks diekstrak di peramban Anda menggunakan pdf.js. Isi dokumen tidak
-            dikirim ke server mana pun selain Pod Anda.
+            Pratinjau membaca teks berkas di browser. Membuka pratinjau ini
+            tidak mengirimkan isi dokumen ke layanan AI.
           </DialogDescription>
         </DialogHeader>
 
@@ -92,7 +92,7 @@ function PreviewContent({
     (async () => {
       try {
         const result = await extractDocumentText(document, () =>
-          repository.fetchDocumentBytes(document)
+          repository.fetchDocumentBytes(document),
         );
         if (!cancelled) setState({ kind: "ready", result });
       } catch (error) {
@@ -147,23 +147,53 @@ function PreviewContent({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Badge variant="secondary" className="text-[9px] font-mono tracking-wide">
+        <Badge
+          variant="secondary"
+          className="text-[9px] font-mono tracking-wide"
+        >
           {result.pageCount} hal · {result.characterCount} karakter
         </Badge>
 
         {pages.length > 1 && (
           <div className="flex items-center gap-1">
             <span className="inline-flex items-center gap-1.5 text-[11px] text-[#6c7958]">
-              {(isPdf ? (
-                <svg width="12" height="12" viewBox="0 0 24 24" className="shrink-0" aria-hidden>
-                  <path d="M16 2L5 9l4 4 4-4-4-4 3-3zM4 15h16M4 19h16" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+              {isPdf ? (
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  className="shrink-0"
+                  aria-hidden
+                >
+                  <path
+                    d="M16 2L5 9l4 4 4-4-4-4 3-3zM4 15h16M4 19h16"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               ) : (
-                <svg width="12" height="12" viewBox="0 0 24 24" className="shrink-0" aria-hidden>
-                  <path d="M9.5 6L5 12l4.5 6M14.5 6L19 12l-4.5 6M4 12h16" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  className="shrink-0"
+                  aria-hidden
+                >
+                  <path
+                    d="M9.5 6L5 12l4.5 6M14.5 6L19 12l-4.5 6M4 12h16"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    fill="none"
+                  />
                 </svg>
-              ))}
-              <span className="capitalize">{isPdf ? "Halaman" : "Baris"} {pageIndex + 1} dari {pages.length}</span>
+              )}
+              <span className="capitalize">
+                {isPdf ? "Halaman" : "Baris"} {pageIndex + 1} dari{" "}
+                {pages.length}
+              </span>
             </span>
             <Button
               type="button"
@@ -197,8 +227,8 @@ function PreviewContent({
         <div className="flex items-start gap-2 rounded-[8px] border border-[#d8dfcd] bg-[#eef3e5]/60 p-3 text-[11px] text-[#5d7148]">
           <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#ae624c]" />
           <p className="leading-relaxed">
-            Tidak ada teks yang dapat diekstrak. Berkas kemungkinan merupakan PDF
-            hasil pindaian (gambar) tanpa lapisan teks.
+            Tidak ada teks yang dapat diekstrak. Berkas kemungkinan merupakan
+            PDF hasil pindaian (gambar) tanpa lapisan teks.
           </p>
         </div>
       )}

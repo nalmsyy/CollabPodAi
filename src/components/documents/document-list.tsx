@@ -25,10 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  ProjectDocument,
-  IncompleteProjectDocument,
-} from "@/types/document";
+import { ProjectDocument, IncompleteProjectDocument } from "@/types/document";
 import {
   SolidDocumentRepository,
   formatBytes,
@@ -38,10 +35,13 @@ import {
   isSolidDocumentAccessDenied,
 } from "@/lib/solid-document-repository";
 import { DocumentPreviewDialog } from "@/components/documents/document-preview-dialog";
+import type { ProjectMember } from "@/types/project";
 import { cn } from "@/lib/utils";
 
 interface DocumentListProps {
   repository: SolidDocumentRepository;
+  demo?: boolean;
+  members?: ProjectMember[];
   documents: ProjectDocument[];
   incompleteDocuments: IncompleteProjectDocument[];
   isLoading: boolean;
@@ -74,6 +74,8 @@ type FilterTab = "all" | "approved" | "unapproved";
 
 export function DocumentList({
   repository,
+  demo = false,
+  members = [],
   documents,
   incompleteDocuments,
   isLoading,
@@ -84,13 +86,17 @@ export function DocumentList({
   canApprove,
   onOpenUpload,
 }: DocumentListProps) {
+  const uploaderLabel = (doc: ProjectDocument) =>
+    members.find((member) => member.webId === doc.uploaderWebId)?.name ??
+    doc.uploaderWebId.split("/")[2] ??
+    "Anggota";
   const [downloadingId, setDownloadingId] = React.useState<string | null>(null);
   const [previewDocument, setPreviewDocument] =
     React.useState<ProjectDocument | null>(null);
   const [approvingId, setApprovingId] = React.useState<string | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<DeleteTarget | null>(
-    null
+    null,
   );
   const [isDeleting, setIsDeleting] = React.useState(false);
 
@@ -124,8 +130,8 @@ export function DocumentList({
       setActionError(
         describeActionError(
           err,
-          `menyimpan persetujuan AI untuk "${doc.name}"`
-        )
+          `menyimpan persetujuan AI untuk "${doc.name}"`,
+        ),
       );
     } finally {
       setApprovingId(null);
@@ -197,7 +203,9 @@ export function DocumentList({
           <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" />
           <div className="space-y-1">
             <p className="font-semibold text-rose-900">{desc.stepLabel}</p>
-            <p className="text-xs text-rose-700 leading-relaxed">{desc.message}</p>
+            <p className="text-xs text-rose-700 leading-relaxed">
+              {desc.message}
+            </p>
           </div>
         </div>
         <Button
@@ -226,7 +234,8 @@ export function DocumentList({
         </p>
         <p className="mt-1 text-xs text-muted-foreground max-w-sm">
           Berkas disimpan langsung di Pod Solid pemilik workspace. Format yang
-          didukung adalah PDF dan TXT (maks. 5 MB per berkas, maks. 10 dokumen per proyek).
+          didukung adalah PDF dan TXT (maks. 5 MB per berkas, maks. 10 dokumen
+          per proyek).
         </p>
         {canUpload && (
           <Button
@@ -261,7 +270,10 @@ export function DocumentList({
               Satu sumber, untuk seluruh tim.
             </p>
             <p className="text-[11px] text-[#5d6f46] mt-0.5 leading-relaxed">
-              Dokumen proyek berada di Pod pemilik. Persetujuan AI berlaku untuk versi dokumen yang dipilih.
+              {demo
+                ? "Dokumen demo tersimpan di browser ini."
+                : "Dokumen proyek berada di Pod pemilik."}{" "}
+              Persetujuan AI berlaku untuk versi dokumen yang dipilih.
             </p>
           </div>
         </div>
@@ -278,7 +290,7 @@ export function DocumentList({
               "px-3 py-1.5 rounded-md transition-all text-xs",
               filterTab === "all"
                 ? "bg-[#e3e8d8] text-[#4d6037] font-[550]"
-                : "text-muted-foreground hover:text-foreground"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             Semua ({documents.length})
@@ -290,7 +302,7 @@ export function DocumentList({
               "px-3 py-1.5 rounded-md transition-all text-xs",
               filterTab === "approved"
                 ? "bg-[#e3e8d8] text-[#4d6037] font-[550]"
-                : "text-muted-foreground hover:text-foreground"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             Disetujui AI ({documents.filter((d) => d.aiApproved).length})
@@ -302,7 +314,7 @@ export function DocumentList({
               "px-3 py-1.5 rounded-md transition-all text-xs",
               filterTab === "unapproved"
                 ? "bg-[#e3e8d8] text-[#4d6037] font-[550]"
-                : "text-muted-foreground hover:text-foreground"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             Belum disetujui ({documents.filter((d) => !d.aiApproved).length})
@@ -314,6 +326,7 @@ export function DocumentList({
           <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
           <input
             type="text"
+            aria-label="Cari dokumen"
             placeholder="Cari dokumen…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -403,7 +416,8 @@ export function DocumentList({
                         {doc.name}
                       </button>
                       <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
-                        {formatBytes(doc.sizeBytes)} · diunggah {formatUploadedAt(doc.uploadedAt)}
+                        {formatBytes(doc.sizeBytes)} · diunggah{" "}
+                        {formatUploadedAt(doc.uploadedAt)}
                       </p>
                     </div>
                   </div>
@@ -411,9 +425,14 @@ export function DocumentList({
                   {/* Kolom 2: Ditambahkan oleh */}
                   <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground min-w-0">
                     <div className="w-5 h-5 rounded-full bg-[#e3ecda] text-[#53643e] font-semibold text-[9px] flex items-center justify-center shrink-0">
-                      O
+                      {uploaderLabel(doc).slice(0, 1).toUpperCase()}
                     </div>
-                    <span className="truncate text-[11px]">Owner</span>
+                    <span
+                      className="truncate text-[11px]"
+                      title={doc.uploaderWebId}
+                    >
+                      {uploaderLabel(doc)}
+                    </span>
                   </div>
 
                   {/* Kolom 3: Penggunaan AI Button / Pill */}
@@ -432,7 +451,7 @@ export function DocumentList({
                           "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer border select-none",
                           doc.aiApproved
                             ? "bg-[#edf4e6] text-[#4d6037] border-[#cadab7] hover:bg-[#e2edd7]"
-                            : "bg-[#f5f6f1] text-[#7c8471] border-[#e3e6da] hover:bg-[#eaece4]"
+                            : "bg-[#f5f6f1] text-[#7c8471] border-[#e3e6da] hover:bg-[#eaece4]",
                         )}
                       >
                         {isApproving ? (
@@ -455,7 +474,7 @@ export function DocumentList({
                           "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium border select-none",
                           doc.aiApproved
                             ? "bg-[#edf4e6] text-[#4d6037] border-[#cadab7]"
-                            : "bg-[#f5f6f1] text-[#7c8471] border-[#e3e6da]"
+                            : "bg-[#f5f6f1] text-[#7c8471] border-[#e3e6da]",
                         )}
                       >
                         {doc.aiApproved ? "✓ Disetujui" : "○ Belum disetujui"}
@@ -578,7 +597,10 @@ export function DocumentList({
           <DialogHeader>
             <DialogTitle>Hapus dokumen?</DialogTitle>
             <DialogDescription>
-              Berkas <span className="font-semibold text-foreground">{deleteName}</span>{" "}
+              Berkas{" "}
+              <span className="font-semibold text-foreground">
+                {deleteName}
+              </span>{" "}
               beserta metadatanya akan dihapus permanen dari Pod. Tindakan ini
               tidak dapat dibatalkan.
             </DialogDescription>

@@ -77,7 +77,7 @@ export function CreateProjectDialog({
           </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
             Simulasikan pembuatan workspace riset mahasiswa. Data proyek ini akan
-            disimpan pada memori peramban lokal.
+            disimpan pada browser ini.
           </DialogDescription>
         </DialogHeader>
 
