@@ -1,15 +1,9 @@
 "use client";
 
 import * as React from "react";
+import { ProjectWorkspace } from "@/components/workspace/project-workspace";
 import Link from "next/link";
-import {
-  ArrowLeft,
-  Calendar,
-  HardDrive,
-  Loader2,
-  Lock,
-  TriangleAlert,
-} from "lucide-react";
+import { ArrowLeft, Loader2, TriangleAlert } from "lucide-react";
 import {
   SolidSessionProvider,
   useSolidSession,
@@ -20,36 +14,24 @@ import {
   SolidPodProjectRepository,
   SolidProjectAccessDeniedError,
   SolidProjectNotFoundError,
+  normalizePodUrl,
 } from "@/lib/solid-project-repository";
 import { Project } from "@/types/project";
-import { Badge } from "@/components/ui/badge";
 
 type DetailState =
   | { kind: "loading" }
-  | { kind: "ready"; project: Project }
+  | { kind: "ready"; project: Project; fetchImpl: typeof fetch }
   | { kind: "not-found" }
   | { kind: "access-denied" }
   | { kind: "error"; message: string };
 
-function BackLink() {
-  return (
-    <Link
-      href="/dashboard"
-      className="inline-flex items-center gap-2 text-xs font-semibold text-foreground hover:text-primary transition-colors"
-    >
-      <ArrowLeft className="w-3.5 h-3.5" />
-      Kembali ke proyek saya
-    </Link>
-  );
-}
-
 function LoadingState({ label }: { readonly label: string }) {
   return (
     <div
-      className="flex flex-col items-center justify-center gap-3 py-20 text-sm text-muted-foreground"
+      className="flex flex-col items-center justify-center gap-3 py-20 text-sm text-[#6c7b59]"
       role="status"
     >
-      <Loader2 className="h-5 w-5 animate-spin text-primary" />
+      <Loader2 className="h-5 w-5 animate-spin text-[#57733b]" />
       <span>{label}</span>
     </div>
   );
@@ -64,14 +46,14 @@ function FallbackState({
 }) {
   return (
     <div
-      className="mx-auto w-full max-w-3xl space-y-4 rounded-2xl border border-rose-400/30 bg-rose-500/10 p-6 text-sm sm:p-8"
+      className="mx-auto w-full max-w-3xl space-y-4 rounded-[12px] border border-[#d8dfcd] bg-[#dde6d3]/30 p-6 text-sm sm:p-8"
       role="alert"
     >
       <div className="flex items-start gap-2.5">
-        <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-rose-300" />
+        <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-[#ae624c]" />
         <div>
-          <p className="font-semibold text-rose-100">{message}</p>
-          <p className="mt-1 text-rose-200/80">
+          <p className="font-semibold text-[#7a4a3a]">{message}</p>
+          <p className="mt-1 text-[#7a4a3a]/80">
             {hint ??
               "Kembali ke dashboard untuk melihat daftar proyek yang tersedia."}
           </p>
@@ -79,82 +61,26 @@ function FallbackState({
       </div>
       <Link
         href="/dashboard"
-        className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-transparent px-4 py-2 text-sm font-medium text-foreground shadow-xs transition-colors hover:bg-secondary sm:w-auto"
+        className="block w-full sm:w-auto rounded-[8px] border border-line bg-white px-4 py-2 text-[12px] font-medium text-[#4d6037] shadow-xs transition-colors hover:bg-[#f0f4e7]"
       >
-        <ArrowLeft className="w-3.5 h-3.5" />
+        <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
         Kembali ke proyek saya
       </Link>
     </div>
   );
 }
 
-function ProjectDetail({ project }: { readonly project: Project }) {
+function ProjectDetail({
+  project,
+  webId,
+  fetchImpl,
+}: {
+  readonly project: Project;
+  readonly webId: string;
+  readonly fetchImpl: typeof fetch;
+}) {
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-5 rounded-2xl border border-border bg-card/60 p-5">
-      <BackLink />
-
-      <div className="flex items-start gap-2.5">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
-          <Lock className="h-4 w-4" />
-        </div>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="teal">Proyek Privat / Solid Pod</Badge>
-            <Badge variant="outline">Baca-saja</Badge>
-          </div>
-          <h1 className="mt-2 text-xl font-bold leading-tight break-words text-foreground">
-            {project.name}
-          </h1>
-          {project.description &&
-          project.description !== "Tidak ada deskripsi proyek." ? (
-            <p className="mt-2 text-sm leading-relaxed break-words text-muted-foreground">
-              {project.description}
-            </p>
-          ) : (
-            <p className="mt-2 text-sm text-muted-foreground">
-              Tidak ada deskripsi proyek.
-            </p>
-          )}
-        </div>
-      </div>
-
-      <dl className="space-y-4 text-sm">
-        <div className="flex items-start gap-2.5">
-          <HardDrive className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-          <div className="min-w-0">
-            <dt className="text-muted-foreground">Pod asal proyek</dt>
-            <dd className="mt-0.5 block font-mono text-[11px] break-all text-primary sm:text-xs">
-              {project.podUrl}
-            </dd>
-          </div>
-        </div>
-        <div className="flex items-start gap-2.5">
-          <Lock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-          <div className="min-w-0">
-            <dt className="text-muted-foreground">WebID pemilik</dt>
-            <dd className="mt-0.5 block font-mono text-[11px] break-all text-primary sm:text-xs">
-              {project.ownerWebId}
-            </dd>
-          </div>
-        </div>
-        <div className="flex items-center gap-2.5">
-          <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <dt className="text-muted-foreground">Waktu dibuat</dt>
-          <dd className="text-foreground">{project.updatedAt}</dd>
-        </div>
-      </dl>
-
-      <div className="rounded-lg border border-primary/25 bg-primary/10 p-4 text-xs leading-relaxed">
-        <span className="block font-semibold text-primary">
-          Detail proyek baca-saja
-        </span>
-        <p className="mt-1 text-muted-foreground">
-          Halaman ini hanya membaca metadata dari Pod. Penambahan anggota,
-          unggahan dokumen, papan tugas, dan AI belum tersedia. Akses dibatasi
-          oleh izin WAC pada Pod.
-        </p>
-      </div>
-    </div>
+    <ProjectWorkspace project={project} webId={webId} fetchImpl={fetchImpl} />
   );
 }
 
@@ -165,17 +91,50 @@ function ProjectDetail({ project }: { readonly project: Project }) {
  */
 export function SolidProjectDetailScreen({
   projectId,
+  podHint,
 }: {
   readonly projectId: string;
+  /** Pod pemilik proyek dari tautan undangan (?pod=...), untuk anggota. */
+  readonly podHint?: string;
 }) {
   return (
     <SolidSessionProvider>
-      <ProjectDetailView projectId={projectId} />
+      <ProjectDetailView projectId={projectId} podHint={podHint} />
     </SolidSessionProvider>
   );
 }
 
-function ProjectDetailView({ projectId }: { readonly projectId: string }) {
+/**
+ * Baca proyek lewat indeks Pod; bila tidak tercatat di sana (mis. anggota
+ * membuka proyek milik orang lain), baca metadata langsung dari Pod tersebut.
+ * Server Pod tetap menolak pembacaan bila WebID tidak punya izin.
+ */
+async function openProjectWithFallback(
+  repository: SolidPodProjectRepository,
+  projectId: string,
+) {
+  try {
+    return await repository.openProject(projectId);
+  } catch (error) {
+    // Indeks Pod pemilik bersifat privat bagi anggota, jadi penolakan indeks
+    // juga perlu dicoba lewat metadata langsung (yang boleh dibaca anggota).
+    if (
+      error instanceof SolidProjectNotFoundError ||
+      error instanceof SolidProjectAccessDeniedError
+    ) {
+      return repository.openProjectDirect(projectId);
+    }
+    throw error;
+  }
+}
+
+function ProjectDetailView({
+  projectId,
+  podHint,
+}: {
+  readonly projectId: string;
+  readonly podHint?: string;
+}) {
   const { status, webId } = useSolidSession();
   const [state, setState] = React.useState<DetailState>({ kind: "loading" });
 
@@ -193,7 +152,7 @@ function ProjectDetailView({ projectId }: { readonly projectId: string }) {
         const podUrls = await fetchPodUrls(auth.webId);
         if (cancelled) return;
 
-        if (podUrls.length === 0) {
+        if (podUrls.length === 0 && !podHint) {
           setState({
             kind: "error",
             message: "Profil Solid Anda belum mencantumkan Pod.",
@@ -204,7 +163,19 @@ function ProjectDetailView({ projectId }: { readonly projectId: string }) {
         let accessDenied = false;
         let failure: unknown = null;
 
-        for (const podUrl of podUrls) {
+        // Pod dari tautan undangan dicoba lebih dulu: anggota membuka proyek
+        // yang berada di Pod pemilik, bukan di indeks Pod miliknya sendiri.
+        const hintedPod = podHint ? normalizePodUrl(podHint) : null;
+        const candidatePods = hintedPod
+          ? [
+              hintedPod,
+              ...podUrls.filter(
+                (podUrl) => normalizePodUrl(podUrl) !== hintedPod,
+              ),
+            ]
+          : podUrls;
+
+        for (const podUrl of candidatePods) {
           const repository = new SolidPodProjectRepository({
             podUrl,
             webId: auth.webId,
@@ -212,9 +183,13 @@ function ProjectDetailView({ projectId }: { readonly projectId: string }) {
           });
 
           try {
-            const result = await repository.openProject(projectId);
+            const result = await openProjectWithFallback(repository, projectId);
             if (cancelled) return;
-            setState({ kind: "ready", project: result.project });
+            setState({
+              kind: "ready",
+              project: result.project,
+              fetchImpl: auth.fetch,
+            });
             return;
           } catch (error) {
             if (cancelled) return;
@@ -252,7 +227,7 @@ function ProjectDetailView({ projectId }: { readonly projectId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [projectId, status, webId]);
+  }, [projectId, podHint, status, webId]);
 
   if (status === "restoring") {
     return <LoadingState label="Memulihkan sesi Solid…" />;
@@ -269,7 +244,13 @@ function ProjectDetailView({ projectId }: { readonly projectId: string }) {
 
   switch (state.kind) {
     case "ready":
-      return <ProjectDetail project={state.project} />;
+      return (
+        <ProjectDetail
+          project={state.project}
+          webId={webId}
+          fetchImpl={state.fetchImpl}
+        />
+      );
     case "not-found":
       return (
         <FallbackState

@@ -1,39 +1,52 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,450;9..40,500;9..40,550;9..40,600;9..40,650;9..40,700&family=Newsreader:opsz,wght@6..72,400;6..72,450;6..72,500&display=swap");
 @import "tailwindcss";
+@import "./workspace.css";
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
-  --background: #0e0c11;
-  --foreground: #faf7ff;
+  /* Warna dasar - terinspirasi collabpod referensi */
+  --paper: #fcfbf8;
+  --sidebar-bg: #f3f2ed;
+  --ink: #2b3027;
+  --ink-muted: #7c8471;
+  --line: #e3e6da;
+  --olive: #53643e;
+  --olive-light: #6a7b54;
+  --olive-muted: #7e8d6b;
 
-  --card: #23182e;
-  --card-foreground: #faf7ff;
+  /* Token semantik yang dipakai Tailwind */
+  --background: #fcfbf8;
+  --foreground: #2b3027;
 
-  --popover: #23182e;
-  --popover-foreground: #faf7ff;
+  --card: #fffef7;
+  --card-foreground: #2b3027;
+  --card-border: #dce6ce;
 
-  /* Aksen lavender: tombol utama memakai gradasi lavender -> pink */
-  --primary: #c4a5ef;
-  --primary-hover: #edaed5;
-  --primary-foreground: #180f22;
+  --popover: #fffef7;
+  --popover-foreground: #2b3027;
 
-  --secondary: #2d2039;
-  --secondary-foreground: #faf7ff;
+  --primary: #53643e;
+  --primary-hover: #445433;
+  --primary-foreground: #ffffff;
 
-  --muted: #1c1623;
-  --muted-foreground: #cdb8e1;
+  --secondary: #edf0e5;
+  --secondary-foreground: #2b3027;
 
-  --accent: #2f2240;
-  --accent-foreground: #c4a5ef;
+  --muted: #f3f2ed;
+  --muted-foreground: #7c8471;
 
-  --destructive: #fb7185;
-  --destructive-foreground: #1a0910;
+  --accent: #e9edd8;
+  --accent-foreground: #3f5028;
 
-  --border: #3a2b47;
-  --input: #3a2b47;
-  --ring: #c4a5ef;
+  --destructive: #c0392b;
+  --destructive-foreground: #ffffff;
 
-  --radius: 0.625rem;
+  --border: #e3e6da;
+  --input: #e3e6da;
+  --ring: #53643e;
+
+  --radius: 0.5rem;
 }
 
 @theme inline {
@@ -57,35 +70,51 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar-bg);
+  --color-line: var(--line);
+  --color-olive: var(--olive);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
 
-  --font-sans: var(--font-geist-sans), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-mono: var(--font-geist-mono), monospace;
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-serif: "Newsreader", Georgia, serif;
+  --font-mono: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
 }
 
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: var(--font-sans);
+  font-family: "DM Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-size: 13px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Gradasi hanya dipakai oleh tombol utama */
-.gradient-primary {
-  background-image: linear-gradient(
-    135deg,
-    var(--primary) 0%,
-    var(--primary-hover) 100%
-  );
+/* Headings pakai Newsreader (serif) seperti referensi */
+h1, h2, h3, .font-serif {
+  font-family: "Newsreader", Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.5px;
 }
 
 ::selection {
-  background-color: var(--primary);
-  color: var(--primary-foreground);
+  background-color: #c8d8b4;
+  color: var(--foreground);
 }
 
-/* Custom focus ring for accessible keyboard navigation */
+/* Focus ring accessible */
 *:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+
+/* Scrollbar tipis seperti referensi */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+/* Gradient button (tidak dipakai di tema ini, tapi dipertahankan agar tidak error) */
+.gradient-primary {
+  background-color: var(--primary);
 }

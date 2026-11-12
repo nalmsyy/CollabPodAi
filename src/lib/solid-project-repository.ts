@@ -2,6 +2,12 @@
 
 import type { IProjectRepository } from "@/lib/project-storage";
 import type { CreateProjectInput, Project } from "@/types/project";
+import {
+  readProjectMembers,
+  resolveMemberRole,
+  toProjectMember,
+  type StoredProjectMember,
+} from "./solid-acl.ts";
 
 /**
  * Repositori proyek Solid: menulis workspace proyek privat ke Pod terpilih.
@@ -15,6 +21,7 @@ import type { CreateProjectInput, Project } from "@/types/project";
 
 const CPD = "https://collabpod.ai/ns#";
 const RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+const LDP_CONTAINS = "http://www.w3.org/ns/ldp#contains";
 
 const COLLABPOD_SEGMENT = "collabpod";
 const PROJECTS_SEGMENT = "projects";
@@ -134,6 +141,8 @@ export interface SolidProjectContext {
   fetch: typeof fetch;
   /** Sumber ID proyek; dapat diganti agar percobaan ulang stabil. */
   idFactory?: () => string;
+  /** Klien Solid yang dapat diganti untuk pengujian regresi. */
+  client?: SolidClient;
 }
 
 interface ProjectMetadata {
@@ -150,12 +159,19 @@ export class SolidPodProjectRepository implements IProjectRepository {
   private readonly webId: string;
   private readonly fetchImpl: typeof fetch;
   private readonly idFactory: () => string;
+  private readonly solidClient: SolidClient | null;
 
   constructor(context: SolidProjectContext) {
     this.podUrl = normalizePodUrl(context.podUrl);
     this.webId = context.webId;
     this.fetchImpl = context.fetch;
     this.idFactory = context.idFactory ?? createProjectId;
+    this.solidClient = context.client ?? null;
+  }
+
+  /** Klien Solid aktif; dapat diganti lewat konteks untuk pengujian. */
+  private solid(): SolidClient | Promise<SolidClient> {
+    return this.solidClient ?? loadSolidClient();
   }
 
   /**
@@ -177,7 +193,7 @@ export class SolidPodProjectRepository implements IProjectRepository {
     metadataUrl: string;
     podUrl: string;
   }> {
-    const { getSolidDataset, getThing, getUrlAll } = await loadSolidClient();
+    const { getSolidDataset, getThing, getUrlAll } = await this.solid();
 
     // 1) Cari referensi proyek di indeks Pod terpilih. Hanya membaca.
     let indexDataset;
@@ -226,8 +242,63 @@ export class SolidPodProjectRepository implements IProjectRepository {
       throw error;
     }
 
+    return this.buildOpenResult(metadata);
+  }
+
+  /**
+   * Buka proyek langsung dari URL metadata-nya, tanpa memeriksa indeks Pod
+   * pengguna. Dipakai anggota Editor/Viewer yang proyeknya berada di Pod
+   * pemilik: indeks Pod mereka sendiri tidak memuat proyek tersebut.
+   * Server Pod tetap menegakkan WAC, sehingga metadata hanya terbaca bila
+   * pengguna memang diberi akses.
+   */
+  async openProjectDirect(projectId: string): Promise<{
+    project: Project;
+    metadataUrl: string;
+    podUrl: string;
+  }> {
+    const metadataUrl = this.metadataUrlFor(projectId);
+
+    let metadata: ProjectMetadata;
+    try {
+      metadata = await this.readProjectMetadata(metadataUrl);
+    } catch (error) {
+      const status = httpStatusOf(error);
+      if (status === 401 || status === 403) {
+        throw new SolidProjectAccessDeniedError(projectId, metadataUrl, status);
+      }
+      if (status === 404 || status === 410) {
+        throw new SolidProjectNotFoundError(projectId);
+      }
+      throw error;
+    }
+
+    return this.buildOpenResult(metadata);
+  }
+
+  /** Susun hasil pembukaan proyek, termasuk peran pengguna dari members.ttl. */
+  private async buildOpenResult(metadata: ProjectMetadata): Promise<{
+    project: Project;
+    metadataUrl: string;
+    podUrl: string;
+  }> {
+    let members: StoredProjectMember[] = [];
+    try {
+      members = await readProjectMembers({
+        workspaceUrl: this.projectContainerUrl(metadata.projectId),
+        fetch: this.fetchImpl,
+      });
+    } catch {
+      // Daftar anggota bersifat pelengkap: kegagalan membacanya tidak boleh
+      // menggagalkan pembukaan proyek. Peran non-pemilik jatuh ke Viewer.
+      members = [];
+    }
+
+    const project = this.toProject(metadata, members);
+    project.documentCount = await this.countDocuments(metadata.projectId);
+
     return {
-      project: this.toProject(metadata),
+      project,
       metadataUrl: metadata.metadataUrl,
       podUrl: this.podUrl,
     };
@@ -249,6 +320,27 @@ export class SolidPodProjectRepository implements IProjectRepository {
     );
   }
 
+  /**
+   * Hitung dokumen yang tersimpan di `data/documents/` proyek.
+   * Setiap dokumen adalah satu sub-kontainer; kegagalan baca (mis. kontainer
+   * belum ada atau akses ditolak) menghasilkan 0 tanpa menggagalkan daftar.
+   */
+  private async countDocuments(projectId: string): Promise<number> {
+    const { getSolidDataset, getThing, getUrlAll } = await this.solid();
+    const documentsUrl = `${this.projectContainerUrl(projectId)}data/documents/`;
+
+    try {
+      const dataset = await getSolidDataset(documentsUrl, {
+        fetch: this.fetchImpl,
+      });
+      const thing = getThing(dataset, documentsUrl);
+      const children = thing ? getUrlAll(thing, LDP_CONTAINS) : [];
+      return children.filter((childUrl) => childUrl.endsWith("/")).length;
+    } catch {
+      return 0;
+    }
+  }
+
   private projectContainerUrl(projectId: string): string {
     return podContainerUrl(
       this.podUrl,
@@ -259,10 +351,10 @@ export class SolidPodProjectRepository implements IProjectRepository {
   }
 
   async listProjects(): Promise<Project[]> {
-    const { getSolidDataset, getThing, getUrlAll } = await loadSolidClient();
+    const { getSolidDataset, getThing, getUrlAll } = await this.solid();
 
-    if (!(await this.resourceExists(this.indexUrl))) {
-      // Indeks belum ada berarti belum ada proyek — bukan kegagalan baca.
+    if (!(await this.resourceExists(this.indexUrl, "read-index"))) {
+      // Hanya 404/410 yang berarti indeks belum ada — bukan kegagalan baca.
       return [];
     }
 
@@ -276,18 +368,21 @@ export class SolidPodProjectRepository implements IProjectRepository {
     const indexThing = getThing(indexDataset, `${this.indexUrl}#index`);
     const metadataUrls = indexThing ? getUrlAll(indexThing, `${CPD}project`) : [];
 
-    const projects: Project[] = [];
-    for (const metadataUrl of metadataUrls) {
-      const metadata = await this.readProjectMetadata(metadataUrl);
-      projects.push(this.toProject(metadata));
-    }
+    const projects = await Promise.all(
+      metadataUrls.map(async (metadataUrl) => {
+        const metadata = await this.readProjectMetadata(metadataUrl);
+        const project = this.toProject(metadata);
+        project.documentCount = await this.countDocuments(metadata.projectId);
+        return project;
+      })
+    );
 
     return projects.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
   }
 
   async createProject(input: CreateProjectInput): Promise<Project> {
     const { createSolidDataset, createThing, setThing, setUrl, setStringNoLocale, setDatetime, addUrl, saveSolidDatasetAt, getSolidDataset, getThing, getStringNoLocale, getUrlAll } =
-      await loadSolidClient();
+      await this.solid();
 
     const projectId = input.projectId?.trim() || this.idFactory();
     const metadataUrl = this.metadataUrlFor(projectId);
@@ -312,8 +407,11 @@ export class SolidPodProjectRepository implements IProjectRepository {
     // Izin ditulis sebelum metadata: kontainer aplikasi memakai acl:default
     // sehingga project.ttl dan resource turunannya privat untuk pemilik.
     await this.runStep("prepare-permissions", async () => {
-      await this.makePrivateToOwner(podContainerUrl(this.podUrl, COLLABPOD_SEGMENT));
+      const appContainerUrl = podContainerUrl(this.podUrl, COLLABPOD_SEGMENT);
+      await this.makePrivateToOwner(appContainerUrl);
+      await this.verifyPrivateToOwner(appContainerUrl);
       await this.makePrivateToOwner(projectContainerUrl);
+      await this.verifyPrivateToOwner(projectContainerUrl);
     });
 
     const createdAt = new Date().toISOString();
@@ -355,7 +453,7 @@ export class SolidPodProjectRepository implements IProjectRepository {
 
     // Referensi ke indeks privat hanya ditambahkan setelah metadata terbaca.
     await this.runStep("write-index", async () => {
-      const indexExists = await this.resourceExists(this.indexUrl);
+      const indexExists = await this.resourceExists(this.indexUrl, "write-index");
       let indexDataset = createSolidDataset();
       if (indexExists) {
         indexDataset = await getSolidDataset(this.indexUrl, {
@@ -399,7 +497,7 @@ export class SolidPodProjectRepository implements IProjectRepository {
 
   private async readProjectMetadata(metadataUrl: string): Promise<ProjectMetadata> {
     const { getSolidDataset, getThingAll, getStringNoLocale, getUrl, getDatetime, getUrlAll } =
-      await loadSolidClient();
+      await this.solid();
 
     let dataset;
     try {
@@ -441,15 +539,21 @@ export class SolidPodProjectRepository implements IProjectRepository {
     };
   }
 
-  private toProject(metadata: ProjectMetadata): Project {
+  private toProject(
+    metadata: ProjectMetadata,
+    storedMembers: readonly StoredProjectMember[] = []
+  ): Project {
     const ownerName = ownerNameFromWebId(metadata.ownerWebId);
-    const isOwner = metadata.ownerWebId === this.webId;
 
     return {
       id: metadata.projectId,
       name: metadata.name,
       description: metadata.description || "Tidak ada deskripsi proyek.",
-      currentUserRole: isOwner ? "Owner" : "Viewer",
+      currentUserRole: resolveMemberRole(
+        this.webId,
+        metadata.ownerWebId,
+        storedMembers
+      ),
       ownerName,
       ownerWebId: metadata.ownerWebId,
       members: [
@@ -459,12 +563,16 @@ export class SolidPodProjectRepository implements IProjectRepository {
           role: "Owner",
           webId: metadata.ownerWebId,
         },
+        ...storedMembers
+          .filter((member) => member.webId !== metadata.ownerWebId)
+          .map(toProjectMember),
       ],
       updatedAt: formatCreatedAt(metadata.createdAt),
       documentCount: 0,
       isDemo: false,
       metadataUrl: metadata.metadataUrl,
       podUrl: this.podUrl,
+      workspaceUrl: this.projectContainerUrl(metadata.projectId),
     };
   }
 
@@ -482,19 +590,31 @@ export class SolidPodProjectRepository implements IProjectRepository {
     }
   }
 
-  private async resourceExists(url: string): Promise<boolean> {
-    const { getResourceInfo } = await loadSolidClient();
+  /**
+   * Periksa keberadaan resource tanpa menyamakan kegagalan akses atau
+   * koneksi dengan "belum ada". Hanya 404/410 yang berarti belum ada;
+   * 401/403, 5xx, dan kegagalan jaringan diteruskan sebagai kegagalan agar
+   * pemanggil tidak membuat atau menimpa resource secara keliru.
+   */
+  private async resourceExists(
+    url: string,
+    step: SolidProjectStep
+  ): Promise<boolean> {
+    const { getResourceInfo } = await this.solid();
     try {
       await getResourceInfo(url, { fetch: this.fetchImpl });
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      if (isMissingResourceError(error)) {
+        return false;
+      }
+      throw new SolidProjectError(step, error);
     }
   }
 
   private async ensureContainer(url: string): Promise<void> {
-    const { createContainerAt } = await loadSolidClient();
-    if (await this.resourceExists(url)) {
+    const { createContainerAt } = await this.solid();
+    if (await this.resourceExists(url, "prepare-workspace")) {
       return;
     }
     await createContainerAt(url, { fetch: this.fetchImpl });
@@ -515,7 +635,7 @@ export class SolidPodProjectRepository implements IProjectRepository {
       setPublicResourceAccess,
       setPublicDefaultAccess,
       saveAclFor,
-    } = await loadSolidClient();
+    } = await this.solid();
 
     const resourceInfo = await getResourceInfoWithAcl(url, {
       fetch: this.fetchImpl,
@@ -538,6 +658,125 @@ export class SolidPodProjectRepository implements IProjectRepository {
 
     await saveAclFor(resourceInfo, acl, { fetch: this.fetchImpl });
   }
+
+  /**
+   * Baca ulang ACL dari server setelah disimpan, lalu pastikan hanya pemilik
+   * yang memiliki akses pada resource dan turunannya. Pemeriksaan mencakup
+   * aturan pemilik, akses publik, agen lain, dan grup lain. Kegagalan di sini
+   * menghentikan penulisan metadata dan indeks proyek.
+   */
+  private async verifyPrivateToOwner(url: string): Promise<void> {
+    const {
+      getResourceInfoWithAcl,
+      hasAccessibleAcl,
+      hasResourceAcl,
+      getResourceAcl,
+      getAgentResourceAccess,
+      getAgentDefaultAccess,
+      getAgentResourceAccessAll,
+      getAgentDefaultAccessAll,
+      getPublicResourceAccess,
+      getPublicDefaultAccess,
+      getGroupResourceAccessAll,
+      getGroupDefaultAccessAll,
+    } = await this.solid();
+
+    const resourceInfo = await getResourceInfoWithAcl(url, {
+      fetch: this.fetchImpl,
+    });
+
+    if (!hasAccessibleAcl(resourceInfo) || !hasResourceAcl(resourceInfo)) {
+      throw new Error(
+        `ACL pada ${url} tidak dapat dibaca kembali setelah disimpan.`
+      );
+    }
+
+    const acl = getResourceAcl(resourceInfo);
+    const ownerResource = getAgentResourceAccess(acl, this.webId);
+    const ownerDefault = getAgentDefaultAccess(acl, this.webId);
+
+    if (!hasFullControl(ownerResource) || !hasFullControl(ownerDefault)) {
+      throw new Error(
+        `ACL pada ${url} tidak memberikan baca, tulis, dan kontrol penuh kepada pemilik.`
+      );
+    }
+
+    if (
+      grantsAnyAccess(getPublicResourceAccess(acl)) ||
+      grantsAnyAccess(getPublicDefaultAccess(acl))
+    ) {
+      throw new Error(`ACL pada ${url} masih memberikan akses kepada publik.`);
+    }
+
+    const foreignAgent =
+      firstPrincipalWithAccess(
+        getAgentResourceAccessAll(acl),
+        this.webId
+      ) ??
+      firstPrincipalWithAccess(getAgentDefaultAccessAll(acl), this.webId);
+    if (foreignAgent) {
+      throw new Error(
+        `ACL pada ${url} masih memberikan akses kepada agen lain (${foreignAgent}).`
+      );
+    }
+
+    const foreignGroup =
+      firstPrincipalWithAccess(getGroupResourceAccessAll(acl)) ??
+      firstPrincipalWithAccess(getGroupDefaultAccessAll(acl));
+    if (foreignGroup) {
+      throw new Error(
+        `ACL pada ${url} masih memberikan akses kepada grup lain (${foreignGroup}).`
+      );
+    }
+  }
+}
+
+/** Status HTTP 404/410 berarti resource memang belum ada. */
+function isMissingResourceError(error: unknown): boolean {
+  const status = httpStatusOf(error);
+  return status === 404 || status === 410;
+}
+
+type AccessRule = {
+  read?: boolean;
+  append?: boolean;
+  write?: boolean;
+  control?: boolean;
+};
+
+function grantsAnyAccess(access: AccessRule): boolean {
+  return Boolean(access.read || access.append || access.write || access.control);
+}
+
+function hasFullControl(access: AccessRule): boolean {
+  return Boolean(
+    access.read && access.append && access.write && access.control
+  );
+}
+
+/** Principal pertama yang masih memiliki akses selain principal yang diizinkan. */
+function firstPrincipalWithAccess(
+  accessByPrincipal: Record<string, AccessRule>,
+  allowedPrincipal?: string
+): string | null {
+  for (const [principal, access] of Object.entries(accessByPrincipal)) {
+    if (allowedPrincipal !== undefined && principal === allowedPrincipal) {
+      continue;
+    }
+    if (grantsAnyAccess(access)) {
+      return principal;
+    }
+  }
+  return null;
+}
+
+/** True bila kegagalan berasal dari penolakan akses server (401/403). */
+export function isSolidProjectAccessDenied(error: unknown): boolean {
+  if (error instanceof SolidProjectAccessDeniedError) {
+    return true;
+  }
+  const status = httpStatusOf(error);
+  return status === 401 || status === 403;
 }
 
 /** Ambil ID proyek dari URL metadata .../projects/{id}/config/project.ttl. */
@@ -582,8 +821,15 @@ function httpStatusOf(error: unknown): number | undefined {
 function ownerNameFromWebId(webId: string): string {
   try {
     const url = new URL(webId);
-    const pathSegment = url.pathname.split("/").filter(Boolean)[0];
-    return pathSegment ?? url.hostname;
+    // WebID standar berakhiran /<nama>/profile/card#me; segmen "profile"
+    // bukan nama pengguna, jadi cari segmen yang bermakna.
+    const generic = new Set(["profile", "card", "me"]);
+    const candidate = url.pathname
+      .split("/")
+      .filter(Boolean)
+      .reverse()
+      .find((segment) => !generic.has(segment.toLowerCase()));
+    return candidate ?? url.hostname;
   } catch {
     return "Pemilik Pod";
   }

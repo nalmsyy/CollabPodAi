@@ -24,7 +24,7 @@ export function ProjectList({
   // Empty state: Pencarian tidak menemukan hasil
   if (projects.length === 0 && searchQuery) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 text-center rounded-xl border border-dashed border-border bg-card/40">
+      <div className="flex flex-col items-center justify-center p-12 text-center rounded-xl border border-dashed border-border bg-muted/40">
         <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center text-muted-foreground mb-3">
           <FolderSearch className="w-6 h-6" />
         </div>
@@ -50,8 +50,8 @@ export function ProjectList({
   // Empty state: Belum ada proyek
   if (projects.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 text-center rounded-xl border border-dashed border-border bg-card/40">
-        <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center text-primary mb-3">
+      <div className="flex flex-col items-center justify-center p-12 text-center rounded-xl border border-dashed border-border bg-muted/40">
+        <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-3">
           <FolderPlus className="w-6 h-6" />
         </div>
         <h4 className="text-sm font-semibold text-foreground">
@@ -75,12 +75,13 @@ export function ProjectList({
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {projects.map((project) => (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {projects.map((project, index) => (
         <ProjectCard
           key={project.id}
           project={project}
           onClick={onSelectProject}
+          index={index}
         />
       ))}
     </div>

@@ -38,7 +38,6 @@ export function CreateSolidProjectDialog({
 }: CreateSolidProjectDialogProps) {
   const [name, setName] = React.useState("");
   const [description, setDescription] = React.useState("");
-  // ID stabil: percobaan ulang memakai ID yang sama sehingga tidak membuat duplikat.
   const [projectId, setProjectId] = React.useState(createProjectId);
   const [submitting, setSubmitting] = React.useState(false);
   const [failure, setFailure] = React.useState<{
@@ -106,42 +105,44 @@ export function CreateSolidProjectDialog({
         onOpenChange(nextOpen);
       }}
     >
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent className="sm:max-w-[480px] p-6 bg-[#fffefa] border border-[#dce6ce] rounded-2xl">
         <DialogHeader>
-          <DialogTitle>Buat Proyek di Pod</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-2xl font-serif font-normal text-foreground">
+            Buat Proyek di Pod
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
             Workspace proyek dibuat privat di Pod yang Anda pilih. Hanya WebID
             Anda yang memiliki izin baca, tulis, dan kontrol.
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4 py-2">
+        <form onSubmit={handleSubmit} className="space-y-4 pt-1">
           <div className="space-y-1.5">
             <label
               htmlFor="solid-project-name"
               className="text-xs font-semibold text-foreground"
             >
-              Nama Proyek <span className="text-rose-400">*</span>
+              Nama Proyek <span className="text-rose-600">*</span>
             </label>
             <Input
               id="solid-project-name"
-              placeholder="Contoh: Uji Penyimpanan Pod"
+              placeholder="Contoh: Riset Kualitas Air"
               value={name}
               onChange={(event) => {
                 setName(event.target.value);
                 if (fieldError) setFieldError(null);
               }}
-              error={!!fieldError}
               autoFocus
               disabled={submitting}
+              className={fieldError ? "border-rose-400" : ""}
             />
             {fieldError && (
               <p
                 id="solid-project-name-error"
                 role="alert"
-                className="text-xs text-rose-300 flex items-center gap-1 mt-1 font-medium"
+                className="text-xs text-rose-700 flex items-center gap-1 mt-1 font-medium"
               >
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600" />
                 {fieldError}
               </p>
             )}
@@ -164,11 +165,11 @@ export function CreateSolidProjectDialog({
             />
           </div>
 
-          <div className="rounded-lg border border-primary/25 bg-primary/10 p-3 text-[11px] leading-relaxed">
+          <div className="rounded-xl border border-[#dce6ce] bg-[#f8faf4] p-3 text-[11px] leading-relaxed">
             <span className="text-xs font-semibold text-foreground block">
               Pod tujuan
             </span>
-            <code className="mt-1 block font-mono text-[11px] break-all text-primary">
+            <code className="mt-1 block font-mono text-[11px] break-all text-[#53643e] font-semibold">
               {targetPodUrl}
             </code>
             <span className="mt-2 block text-muted-foreground">
@@ -182,34 +183,35 @@ export function CreateSolidProjectDialog({
           {failure && (
             <div
               role="alert"
-              className="rounded-lg border border-rose-400/30 bg-rose-500/10 p-3 text-[11px] text-rose-100 leading-relaxed"
+              className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900 leading-relaxed"
             >
-              <span className="flex items-center gap-1.5 font-semibold text-rose-200">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              <span className="flex items-center gap-1.5 font-semibold text-rose-800">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600" />
                 {failure.title}
               </span>
               <span className="mt-1 block break-words">{failure.message}</span>
-              <span className="mt-1.5 block text-rose-200/80">
+              <span className="mt-1.5 block text-rose-700">
                 Tekan &ldquo;Simpan ke Pod&rdquo; lagi untuk melanjutkan proyek
                 yang sama tanpa membuat duplikat.
               </span>
             </div>
           )}
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-2 sm:gap-0 pt-2">
             <Button
               type="button"
               variant="outline"
+              size="sm"
               onClick={() => onOpenChange(false)}
               disabled={submitting}
             >
               Batal
             </Button>
-            <Button type="submit" variant="primary" disabled={submitting}>
+            <Button type="submit" variant="primary" size="sm" disabled={submitting}>
               {submitting ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                <Save className="w-4 h-4" />
+                <Save className="w-3.5 h-3.5" />
               )}
               {submitting ? "Menyimpan…" : "Simpan ke Pod"}
             </Button>

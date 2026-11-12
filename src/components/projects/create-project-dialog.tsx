@@ -70,23 +70,25 @@ export function CreateProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent className="sm:max-w-[480px] p-6 bg-[#fffefa] border border-[#dce6ce] rounded-2xl">
         <DialogHeader>
-          <DialogTitle>Buat Proyek Demo Baru</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-2xl font-serif font-normal text-foreground">
+            Buat Proyek Demo Baru
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
             Simulasikan pembuatan workspace riset mahasiswa. Data proyek ini akan
-            disimpan pada memori peramban lokal untuk pengujian tampilan.
+            disimpan pada browser ini.
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4 py-2">
+        <form onSubmit={handleSubmit} className="space-y-4 pt-1">
           {/* Project Name Field */}
           <div className="space-y-1.5">
             <label
               htmlFor="project-name"
               className="text-xs font-semibold text-foreground"
             >
-              Nama Proyek <span className="text-rose-400">*</span>
+              Nama Proyek <span className="text-rose-600">*</span>
             </label>
             <Input
               id="project-name"
@@ -96,15 +98,15 @@ export function CreateProjectDialog({
                 setName(e.target.value);
                 if (error) setError(null);
               }}
-              error={!!error}
               autoFocus
+              className={error ? "border-rose-400" : ""}
             />
             {error && (
               <p
                 id="name-error"
-                className="text-xs text-rose-300 flex items-center gap-1 mt-1 font-medium"
+                className="text-xs text-rose-700 flex items-center gap-1 mt-1 font-medium"
               >
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600" />
                 {error}
               </p>
             )}
@@ -139,10 +141,10 @@ export function CreateProjectDialog({
                   type="button"
                   onClick={() => setRole(r)}
                   aria-pressed={role === r}
-                  className={`flex flex-col items-center justify-center p-2.5 rounded-lg border text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card ${
+                  className={`flex flex-col items-center justify-center p-2.5 rounded-lg border text-xs font-medium transition-all select-none ${
                     role === r
-                      ? "border-primary bg-primary/15 text-foreground font-semibold ring-1 ring-primary"
-                      : "border-border bg-background/40 text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                      ? "border-[#53643e] bg-[#edf2e4] text-[#4d6037] font-semibold"
+                      : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
                   }`}
                 >
                   <span>{r}</span>
@@ -158,21 +160,22 @@ export function CreateProjectDialog({
             </div>
           </div>
 
-          <div className="rounded-lg bg-amber-500/10 p-2.5 border border-amber-400/30 text-[11px] text-amber-200 leading-normal">
-            <strong className="font-semibold text-amber-100">Catatan Demo:</strong>{" "}
+          <div className="rounded-xl bg-[#edf2e4] p-3 border border-[#dce6ce] text-[11px] text-[#53643e] leading-relaxed">
+            <strong className="font-semibold text-[#374426]">Catatan Demo:</strong>{" "}
             Proyek baru akan ditambahkan ke state lokal saat ini dan akan tereset
             saat halaman dimuat ulang.
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-2 sm:gap-0 pt-2">
             <Button
               type="button"
               variant="outline"
+              size="sm"
               onClick={() => handleOpenChange(false)}
             >
               Batal
             </Button>
-            <Button type="submit" variant="primary">
+            <Button type="submit" variant="primary" size="sm">
               <Plus className="w-4 h-4 mr-1" />
               Simpan Proyek Demo
             </Button>

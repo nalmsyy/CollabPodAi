@@ -26,15 +26,25 @@
 
 # debug
 npm-debug.log*
+.dev-server.log
+.pod-server.log
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
+
+# local solid pod data
+/.data/
+/data/pod-server/
+
+# generated from pdfjs-dist oleh scripts/copy-pdf-worker.mjs
+/public/pdf.worker.min.mjs
 
 # typescript
 *.tsbuildinfo

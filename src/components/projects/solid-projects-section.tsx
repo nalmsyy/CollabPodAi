@@ -1,7 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { FolderPlus, HardDrive, Loader2, Plus, RefreshCw, TriangleAlert } from "lucide-react";
+import {
+  FolderPlus,
+  HardDrive,
+  Loader2,
+  Plus,
+  RefreshCw,
+  ShieldAlert,
+  TriangleAlert,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProjectCard } from "@/components/projects/project-card";
 import { CreateSolidProjectDialog } from "@/components/projects/create-solid-project-dialog";
@@ -9,21 +17,20 @@ import { usePodSelection } from "@/components/pods/pod-selection-provider";
 
 import { useSolidSession } from "@/components/auth/solid-session-provider";
 import { getSolidSessionAuth } from "@/lib/solid-session";
-import { SolidPodProjectRepository } from "@/lib/solid-project-repository";
+import {
+  SolidPodProjectRepository,
+  isSolidProjectAccessDenied,
+} from "@/lib/solid-project-repository";
 import { Project } from "@/types/project";
 
 interface SolidProjectsSectionProps {
   onProjectCreated: (project: Project) => void;
-  onSelectProject: (project: Project) => void;
 }
 
-/**
- * Daftar proyek Solid untuk Pod terpilih, dibaca dari project-index.ttl privat.
- * Daftar kosong dan kegagalan baca dibedakan; daftar dibuang saat Pod berganti.
- */
+type ReadErrorKind = "access" | "connection";
+
 export function SolidProjectsSection({
   onProjectCreated,
-  onSelectProject,
 }: SolidProjectsSectionProps) {
   const { selectedPodUrl } = usePodSelection();
   const [dialogOpen, setDialogOpen] = React.useState(false);
@@ -31,8 +38,8 @@ export function SolidProjectsSection({
 
   if (!selectedPodUrl) {
     return (
-      <div className="flex flex-col items-center justify-center p-10 text-center rounded-xl border border-dashed border-border bg-card/40">
-        <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center text-primary mb-3">
+      <div className="flex flex-col items-center justify-center p-12 text-center rounded-xl border border-dashed border-[#cad5ba] bg-[#f8faf4]">
+        <div className="w-12 h-12 rounded-full bg-[#eef3e6] text-[#53643e] flex items-center justify-center mb-3">
           <HardDrive className="w-6 h-6" />
         </div>
         <h2 className="text-sm font-semibold text-foreground">
@@ -40,7 +47,7 @@ export function SolidProjectsSection({
         </h2>
         <p className="mt-1 text-xs text-muted-foreground max-w-md leading-relaxed">
           Daftar proyek dibaca dari indeks privat di Pod yang Anda pilih pada
-          bagian &ldquo;Pod saya&rdquo;.
+          bagian &ldquo;Pod Saya&rdquo;.
         </p>
       </div>
     );
@@ -55,11 +62,11 @@ export function SolidProjectsSection({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground break-all">
-          Pod: <code className="font-mono text-[11px] text-primary">{selectedPodUrl}</code>
+          Pod aktif: <code className="font-mono text-[11px] text-[#53643e] font-semibold">{selectedPodUrl}</code>
         </p>
         <Button variant="primary" onClick={() => setDialogOpen(true)}>
           <Plus className="w-4 h-4" />
-          Buat proyek
+          Proyek baru
         </Button>
       </div>
 
@@ -67,7 +74,6 @@ export function SolidProjectsSection({
         key={`${selectedPodUrl}#${reloadToken}`}
         podUrl={selectedPodUrl}
         onCreateProject={() => setDialogOpen(true)}
-        onSelectProject={onSelectProject}
       />
 
       <CreateSolidProjectDialog
@@ -84,18 +90,14 @@ export function SolidProjectsSection({
 interface ProjectsForPodProps {
   podUrl: string;
   onCreateProject: () => void;
-  onSelectProject: (project: Project) => void;
 }
 
-function ProjectsForPod({
-  podUrl,
-  onCreateProject,
-  onSelectProject,
-}: ProjectsForPodProps) {
+function ProjectsForPod({ podUrl, onCreateProject }: ProjectsForPodProps) {
   const { webId } = useSolidSession();
   const [phase, setPhase] = React.useState<"loading" | "ready" | "error">(
     "loading"
   );
+  const [errorKind, setErrorKind] = React.useState<ReadErrorKind>("connection");
   const [projects, setProjects] = React.useState<Project[]>([]);
   const [reloadToken, setReloadToken] = React.useState(0);
 
@@ -114,9 +116,12 @@ function ProjectsForPod({
         if (!active) return;
         setProjects(loaded);
         setPhase("ready");
-      } catch {
+      } catch (error) {
         if (!active) return;
         setProjects([]);
+        setErrorKind(
+          isSolidProjectAccessDenied(error) ? "access" : "connection"
+        );
         setPhase("error");
       }
     })();
@@ -128,7 +133,10 @@ function ProjectsForPod({
 
   if (phase === "loading") {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-border bg-card/40 p-6 text-sm text-muted-foreground">
+      <div
+        className="flex items-center gap-2 rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground"
+        role="status"
+      >
         <Loader2 className="h-4 w-4 animate-spin text-primary" />
         Memuat proyek dari indeks Pod…
       </div>
@@ -136,17 +144,28 @@ function ProjectsForPod({
   }
 
   if (phase === "error") {
+    const denied = errorKind === "access";
     return (
-      <div className="flex flex-col items-center justify-center p-10 text-center rounded-xl border border-rose-400/30 bg-rose-500/10">
-        <div className="w-12 h-12 rounded-full bg-rose-500/15 flex items-center justify-center text-rose-300 mb-3">
-          <TriangleAlert className="w-6 h-6" />
+      <div
+        className="flex flex-col items-center justify-center p-10 text-center rounded-xl border border-rose-200 bg-rose-50"
+        role="alert"
+      >
+        <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center text-rose-700 mb-3">
+          {denied ? (
+            <ShieldAlert className="w-6 h-6" />
+          ) : (
+            <TriangleAlert className="w-6 h-6" />
+          )}
         </div>
-        <h2 className="text-sm font-semibold text-rose-100">
-          Gagal membaca daftar proyek
+        <h2 className="text-sm font-semibold text-rose-900">
+          {denied
+            ? "Akses ke indeks proyek ditolak"
+            : "Gagal membaca daftar proyek"}
         </h2>
-        <p className="mt-1 text-xs text-rose-200/80 max-w-md leading-relaxed">
-          Indeks proyek di Pod tidak dapat dibaca. Periksa koneksi dan izin Pod,
-          lalu coba lagi.
+        <p className="mt-1 text-xs text-rose-700 max-w-md leading-relaxed">
+          {denied
+            ? "Server Pod menolak pembacaan indeks proyek. Pastikan Anda masih masuk sebagai pemilik Pod dan izin WAC pada collabpod/ belum berubah."
+            : "Indeks proyek tidak dapat dibaca karena koneksi atau gangguan server. Tidak ada data Pod yang diubah pada percobaan ini."}
         </p>
         <Button
           variant="outline"
@@ -157,7 +176,7 @@ function ProjectsForPod({
             setReloadToken((token) => token + 1);
           }}
         >
-          <RefreshCw className="w-4 h-4" />
+          <RefreshCw className="w-3.5 h-3.5" />
           Coba lagi
         </Button>
       </div>
@@ -166,16 +185,15 @@ function ProjectsForPod({
 
   if (projects.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 text-center rounded-xl border border-dashed border-border bg-card/40">
-        <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center text-primary mb-3">
+      <div className="flex flex-col items-center justify-center p-12 text-center rounded-xl border border-dashed border-[#cad5ba] bg-[#f8faf4]">
+        <div className="w-12 h-12 rounded-full bg-[#eef3e6] text-[#53643e] flex items-center justify-center mb-3">
           <FolderPlus className="w-6 h-6" />
         </div>
         <h2 className="text-sm font-semibold text-foreground">
-          Belum ada proyek di Pod ini
+          Indeks proyek belum ada atau masih kosong
         </h2>
         <p className="mt-1 text-xs text-muted-foreground max-w-sm leading-relaxed">
-          Indeks proyek kosong. Proyek yang Anda buat akan tersimpan privat di
-          Pod ini dan muncul kembali setelah masuk ulang.
+          Proyek yang Anda buat akan tersimpan privat di Pod ini dan muncul kembali setelah masuk ulang.
         </p>
         <Button variant="primary" size="sm" className="mt-4" onClick={onCreateProject}>
           <Plus className="w-4 h-4" />
@@ -186,13 +204,19 @@ function ProjectsForPod({
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {projects.map((project) => (
-        <ProjectCard
-          key={`${project.podUrl}-${project.id}`}
-          project={project}
-        />
-      ))}
+    <div className="space-y-3">
+      <p role="status" className="text-xs text-[#53643e]">
+        {projects.length} proyek tersimpan di Pod Anda.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {projects.map((project, index) => (
+          <ProjectCard
+            key={`${project.podUrl}-${project.id}`}
+            project={project}
+            index={index}
+          />
+        ))}
+      </div>
     </div>
   );
 }
