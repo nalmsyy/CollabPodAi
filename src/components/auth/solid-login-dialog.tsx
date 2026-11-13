@@ -20,6 +20,7 @@ const PROVIDER_PRESETS = [
   { label: "Solid Community", issuer: "https://solidcommunity.net" },
   { label: "Inrupt PodSpaces", issuer: "https://login.inrupt.com" },
   { label: "Inrupt Community", issuer: "https://inrupt.net" },
+  { label: "Server Lokal", issuer: "http://localhost:3001" },
 ];
 
 interface SolidLoginDialogProps {

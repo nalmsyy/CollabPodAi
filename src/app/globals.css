@@ -2,6 +2,7 @@
 @import "tailwindcss";
 @import "./workspace.css";
 @import "./landing.css";
+@import "./login.css";
 
 :root {
   color-scheme: light;
