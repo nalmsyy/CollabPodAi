@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { Loader2, LogIn, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSolidSession } from "@/components/auth/solid-session-provider";
@@ -18,7 +19,9 @@ export function SessionAccountPanel({
   onRequestLogin,
   className,
 }: SessionAccountPanelProps) {
+  const router = useRouter();
   const { status, webId, error, signOut, clearError } = useSolidSession();
+  const [loggingOut, setLoggingOut] = React.useState(false);
 
   if (status === "restoring") {
     return (
@@ -68,12 +71,27 @@ export function SessionAccountPanel({
           variant="outline"
           size="sm"
           className="w-full h-7 text-xs"
-          onClick={() => {
-            void signOut();
+          disabled={loggingOut}
+          onClick={async () => {
+            setLoggingOut(true);
+            try {
+              await signOut();
+            } finally {
+              router.push("/");
+            }
           }}
         >
-          <LogOut className="w-3 h-3" />
-          Keluar
+          {loggingOut ? (
+            <>
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Keluar…
+            </>
+          ) : (
+            <>
+              <LogOut className="w-3 h-3" />
+              Keluar
+            </>
+          )}
         </Button>
       </div>
     );
