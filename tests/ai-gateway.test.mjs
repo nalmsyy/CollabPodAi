@@ -130,13 +130,12 @@ test("formatPageRange merangkum satu halaman dan rentang halaman", () => {
   assert.equal(formatPageRange([10, 14]), "10–14");
 });
 
-test("buildSystemInstruction berisi aturan ketat dan kalimat penolakan", () => {
+test("buildSystemInstruction berisi mode hybrid dan aturan konteks", () => {
   const prompt = buildSystemInstruction();
   assert.match(prompt, /CollabPod AI/);
-  assert.match(prompt, /HANYA berdasarkan informasi/);
-  assert.ok(prompt.includes(INSUFFICIENT_INFO_ANSWER));
-  assert.match(prompt, /Sumber:/);
-  assert.match(prompt, /nama dokumen dan rentang halaman/);
+  assert.match(prompt, /MODE JAWABAN/);
+  assert.match(prompt, /KONTEKS/);
+  assert.match(prompt, /UMUM/);
   assert.match(prompt, /tidak tepercaya/);
 });
 
@@ -194,14 +193,20 @@ test("chunksToContexts hanya meneruskan field yang dibutuhkan gateway", () => {
 });
 
 
-test('label sitasi di luar konteks dan jawaban tanpa sitasi ditolak', async () => {
+test('validateAnswerCitations: jawaban umum tanpa sitasi valid; label di luar range ditolak', async () => {
   const { validateAnswerCitations, INSUFFICIENT_INFO_ANSWER } = await import('../src/lib/ai-gateway.ts');
-  assert.equal(validateAnswerCitations('Metode [S1]',2),true);
-  assert.equal(validateAnswerCitations('Metode [S3]',2),false);
-  assert.equal(validateAnswerCitations('Metode tanpa bukti',2),false);
-  // Exact match INSUFFICIENT_INFO_ANSWER
-  assert.equal(validateAnswerCitations(INSUFFICIENT_INFO_ANSWER,2),true);
-  // Model kadang menambahkan "\n\nSumber:\n- doc.pdf (hal. 1) [S1]" setelah kalimat penolakan — tetap valid
-  assert.equal(validateAnswerCitations(`${INSUFFICIENT_INFO_ANSWER}\n\nSumber:\n- doc.pdf (hal. 1) [S1]`,2),true);
-  assert.equal(validateAnswerCitations(`${INSUFFICIENT_INFO_ANSWER}\n\nSumber:`,2),true);
+  // Jawaban dengan sitasi valid
+  assert.equal(validateAnswerCitations('Metode [S1]', 2), true);
+  // Label di luar range — ditolak (halusinasi sumber)
+  assert.equal(validateAnswerCitations('Metode [S3]', 2), false);
+  // Jawaban umum tanpa sitasi — VALID (mode umum)
+  assert.equal(validateAnswerCitations('Halo! Saya bisa membantu.', 2), true);
+  assert.equal(validateAnswerCitations('Metode tanpa bukti', 2), true);
+  // Kosong — ditolak
+  assert.equal(validateAnswerCitations('', 2), false);
+  assert.equal(validateAnswerCitations('   ', 2), false);
+  // INSUFFICIENT_INFO_ANSWER tetap valid
+  assert.equal(validateAnswerCitations(INSUFFICIENT_INFO_ANSWER, 2), true);
+  assert.equal(validateAnswerCitations(`${INSUFFICIENT_INFO_ANSWER}\n\nSumber:\n- doc.pdf (hal. 1) [S1]`, 2), true);
+  assert.equal(validateAnswerCitations(`${INSUFFICIENT_INFO_ANSWER}\n\nSumber:`, 2), true);
 });
