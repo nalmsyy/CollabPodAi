@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertCircle, Loader2, Save } from "lucide-react";
+import { AlertCircle, Loader2, RefreshCw, Save } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -183,17 +183,34 @@ export function CreateSolidProjectDialog({
           {failure && (
             <div
               role="alert"
-              className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900 leading-relaxed"
+              className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900 leading-relaxed space-y-2.5"
             >
-              <span className="flex items-center gap-1.5 font-semibold text-rose-800">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600" />
-                {failure.title}
-              </span>
-              <span className="mt-1 block break-words">{failure.message}</span>
-              <span className="mt-1.5 block text-rose-700">
-                Tekan &ldquo;Simpan ke Pod&rdquo; lagi untuk melanjutkan proyek
-                yang sama tanpa membuat duplikat.
-              </span>
+              <div>
+                <span className="flex items-center gap-1.5 font-semibold text-rose-800">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600" />
+                  {failure.title}
+                </span>
+                <span className="mt-1 block break-words">{failure.message}</span>
+              </div>
+              <div className="flex items-center justify-between pt-2 border-t border-rose-200/60">
+                <span className="text-[11px] text-rose-700">
+                  Tekan &ldquo;Simpan ke Pod&rdquo; lagi untuk mencoba ulang, atau gunakan ID baru:
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs bg-white hover:bg-rose-100 text-rose-800 border-rose-300 shrink-0 ml-2"
+                  onClick={() => {
+                    setProjectId(createProjectId());
+                    setFailure(null);
+                  }}
+                  disabled={submitting}
+                >
+                  <RefreshCw className="w-3 h-3 mr-1" />
+                  Ganti ID Baru
+                </Button>
+              </div>
             </div>
           )}
 

@@ -120,9 +120,20 @@ export function describeSolidProjectError(error: unknown): {
         : typeof error.cause === "string"
           ? error.cause
           : null;
+
+    let message = detail?.trim() || error.message;
+    if (
+      httpStatusOf(error.cause) === 412 ||
+      message.includes("412") ||
+      message.includes("PreconditionFailed")
+    ) {
+      message =
+        "Terjadi konflik versi (HTTP 412 Precondition Failed). Berkas proyek mungkin sudah dibuat sebagian di Pod. Silakan tekan 'Simpan ke Pod' lagi atau gunakan ID proyek baru.";
+    }
+
     return {
       stepLabel: `Gagal ${SOLID_PROJECT_STEP_LABEL[error.step]}.`,
-      message: detail?.trim() || error.message,
+      message,
     };
   }
 
@@ -381,8 +392,21 @@ export class SolidPodProjectRepository implements IProjectRepository {
   }
 
   async createProject(input: CreateProjectInput): Promise<Project> {
-    const { createSolidDataset, createThing, setThing, setUrl, setStringNoLocale, setDatetime, addUrl, saveSolidDatasetAt, getSolidDataset, getThing, getStringNoLocale, getUrlAll } =
-      await this.solid();
+    const {
+      createSolidDataset,
+      createThing,
+      setThing,
+      setUrl,
+      setStringNoLocale,
+      setDatetime,
+      addUrl,
+      saveSolidDatasetAt,
+      getSolidDataset,
+      getThing,
+      getStringNoLocale,
+      getUrlAll,
+      deleteFile,
+    } = await this.solid();
 
     const projectId = input.projectId?.trim() || this.idFactory();
     const metadataUrl = this.metadataUrlFor(projectId);
@@ -432,7 +456,18 @@ export class SolidPodProjectRepository implements IProjectRepository {
       thing = addUrl(thing, `${CPD}projectContainer`, projectContainerUrl);
       dataset = setThing(dataset, thing);
 
-      await saveSolidDatasetAt(metadataUrl, dataset, { fetch: this.fetchImpl });
+      try {
+        await saveSolidDatasetAt(metadataUrl, dataset, { fetch: this.fetchImpl });
+      } catch (error) {
+        if (httpStatusOf(error) === 412) {
+          // Jika berkas sudah ada sebelumnya (mis. percobaan pembuatan ulang atau timeout),
+          // hapus berkas lama lalu simpan ulang agar PUT idempoten berhasil tanpa penolakan If-None-Match.
+          await deleteFile(metadataUrl, { fetch: this.fetchImpl });
+          await saveSolidDatasetAt(metadataUrl, dataset, { fetch: this.fetchImpl });
+        } else {
+          throw error;
+        }
+      }
     });
 
     const metadata = await this.runStep("read-metadata", async () => {
@@ -474,9 +509,33 @@ export class SolidPodProjectRepository implements IProjectRepository {
       indexThing = setUrl(indexThing, `${CPD}owner`, this.webId);
 
       indexDataset = setThing(indexDataset, indexThing);
-      await saveSolidDatasetAt(this.indexUrl, indexDataset, {
-        fetch: this.fetchImpl,
-      });
+      try {
+        await saveSolidDatasetAt(this.indexUrl, indexDataset, {
+          fetch: this.fetchImpl,
+        });
+      } catch (error) {
+        if (httpStatusOf(error) === 412) {
+          // Jika terjadi 412 (konflik versi atau berkas baru dibuat bersamaan), muat ulang dan simpan
+          const freshDataset = await getSolidDataset(this.indexUrl, {
+            fetch: this.fetchImpl,
+          });
+          let freshThing = getThing(freshDataset, indexSubject);
+          if (!freshThing) {
+            freshThing = createThing({ url: indexSubject });
+          }
+          const freshUrls = getUrlAll(freshThing, `${CPD}project`);
+          if (!freshUrls.includes(metadataUrl)) {
+            freshThing = addUrl(freshThing, `${CPD}project`, metadataUrl);
+          }
+          freshThing = setUrl(freshThing, `${CPD}owner`, this.webId);
+          const updatedFresh = setThing(freshDataset, freshThing);
+          await saveSolidDatasetAt(this.indexUrl, updatedFresh, {
+            fetch: this.fetchImpl,
+          });
+        } else {
+          throw error;
+        }
+      }
     });
 
     await this.runStep("read-index", async () => {

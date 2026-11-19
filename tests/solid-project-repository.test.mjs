@@ -27,6 +27,20 @@ function respond(url, body = null, init = {}) {
   return response;
 }
 
+function headerValue(headers, key) {
+  if (!headers) return null;
+  if (headers instanceof Headers) {
+    return headers.get(key);
+  }
+  if (typeof headers === "object") {
+    const entry = Object.entries(headers).find(
+      ([k]) => k.toLowerCase() === key.toLowerCase()
+    );
+    return entry ? entry[1] : null;
+  }
+  return null;
+}
+
 function createFakePod({
   indexStatus,
   networkDown = false,
@@ -123,7 +137,22 @@ function createFakePod({
       });
     }
 
+    if (method === "DELETE") {
+      if (!resources.has(url)) {
+        return respond(url, null, { status: 404 });
+      }
+      resources.delete(url);
+      return respond(url, null, { status: 204 });
+    }
+
     if (method === "PUT") {
+      if (
+        headerValue(init.headers, "If-None-Match") === "*" &&
+        resources.has(url)
+      ) {
+        return respond(url, null, { status: 412 });
+      }
+
       const headers = new Headers(init.headers ?? {});
       resources.set(url, {
         body: body ?? "",
@@ -294,4 +323,22 @@ test("jumlah dokumen proyek dibaca dari kontainer data/documents", async () => {
   const references = getUrlAll(indexThing, `${CPD}project`);
 
   assert.deepEqual(references, [METADATA_URL]);
+});
+
+test("retry pembuatan proyek saat metadata sudah ada (HTTP 412) berhasil menimpa tanpa error", async () => {
+  const pod = createFakePod();
+  const repository = repositoryFor(pod);
+
+  // Buat proyek pertama kali
+  await repository.createProject(PROJECT_INPUT);
+
+  // Percobaan kedua dengan nama baru tetapi ID sama (simulasi retry atau perubahan nama saat ID tetap)
+  const updatedProject = await repository.createProject({
+    ...PROJECT_INPUT,
+    name: "Riset Versi Revisi",
+  });
+
+  assert.equal(updatedProject.name, "Riset Versi Revisi");
+  const opened = await repository.openProject("prj-test-1");
+  assert.equal(opened.project.name, "Riset Versi Revisi");
 });
