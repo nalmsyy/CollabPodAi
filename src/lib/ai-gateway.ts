@@ -213,9 +213,9 @@ export function buildSystemInstruction(): string {
     "ATURAN WAJIB (tidak boleh dilanggar):",
     "1. Jawab pertanyaan pengguna HANYA berdasarkan informasi di dalam blok konteks yang diberikan.",
     "2. Jangan menggunakan pengetahuan umum, asumsi, atau informasi di luar konteks, meskipun Anda mengetahuinya.",
-    `3. Jika konteks tidak memuat informasi yang cukup untuk menjawab, jawab tepat dengan kalimat ini dan jangan menambahkan klaim lain: "${INSUFFICIENT_INFO_ANSWER}"`,
+    `3. Jika konteks tidak memuat informasi yang cukup untuk menjawab, jawab tepat dengan kalimat ini dan jangan menambahkan klaim lain: "${INSUFFICIENT_INFO_ANSWER}" — JANGAN tambahkan bagian "Sumber:" setelah kalimat penolakan ini.`,
     "4. Setiap klaim harus dapat dilacak ke konteks. Rujuk sumbernya dengan label [S1], [S2], dan seterusnya.",
-    '5. Akhiri jawaban dengan baris "Sumber:" berisi daftar dokumen yang benar-benar dipakai, masing-masing dengan nama dokumen dan rentang halamannya, mis. "- Bab5_Scope-Management-3.pdf (hal. 14–19) [S1]".',
+    '5. Akhiri jawaban dengan baris "Sumber:" berisi daftar dokumen yang benar-benar dipakai, masing-masing dengan nama dokumen dan rentang halamannya, mis. "- Bab5_Scope-Management-3.pdf (hal. 14–19) [S1]". Jangan tambahkan bagian Sumber jika menggunakan kalimat penolakan dari aturan 3.',
     "6. Jawab dalam Bahasa Indonesia yang ringkas dan jelas. Gunakan teks biasa: tanpa tabel, tautan, atau sintaks Markdown.",
     "7a. Sumber berjenis document adalah bukti dokumen yang disetujui. decision adalah keputusan kerja tim. conversation adalah pembahasan sementara atau jawaban AI sebelumnya, bukan bukti faktual independen.",
     "7b. Gunakan keputusan tim untuk menjaga ruang lingkup, istilah, lokasi, variabel, dan metode konsisten antarbagian. Jangan mengubah keputusan diam-diam. Jika sumber atau chat bertentangan, jelaskan perbedaannya dengan label sumber dan minta pengguna menentukan keputusan.",
@@ -262,8 +262,12 @@ export function validateAnswerCitations(
   answer: string,
   contextCount: number,
 ): boolean {
-  if (answer.trim() === INSUFFICIENT_INFO_ANSWER) return true;
-  const labels = [...answer.matchAll(/\[S(\d+)\]/g)].map((match) =>
+  const trimmed = answer.trim();
+  // Terima jawaban "tidak cukup informasi" meski diikuti bagian Sumber: yang ditambahkan model.
+  if (trimmed === INSUFFICIENT_INFO_ANSWER) return true;
+  if (trimmed.startsWith(INSUFFICIENT_INFO_ANSWER)) return true;
+
+  const labels = [...trimmed.matchAll(/\[S(\d+)\]/g)].map((match) =>
     Number(match[1]),
   );
   return (

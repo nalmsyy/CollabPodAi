@@ -199,5 +199,9 @@ test('label sitasi di luar konteks dan jawaban tanpa sitasi ditolak', async () =
   assert.equal(validateAnswerCitations('Metode [S1]',2),true);
   assert.equal(validateAnswerCitations('Metode [S3]',2),false);
   assert.equal(validateAnswerCitations('Metode tanpa bukti',2),false);
+  // Exact match INSUFFICIENT_INFO_ANSWER
   assert.equal(validateAnswerCitations(INSUFFICIENT_INFO_ANSWER,2),true);
+  // Model kadang menambahkan "\n\nSumber:\n- doc.pdf (hal. 1) [S1]" setelah kalimat penolakan — tetap valid
+  assert.equal(validateAnswerCitations(`${INSUFFICIENT_INFO_ANSWER}\n\nSumber:\n- doc.pdf (hal. 1) [S1]`,2),true);
+  assert.equal(validateAnswerCitations(`${INSUFFICIENT_INFO_ANSWER}\n\nSumber:`,2),true);
 });
