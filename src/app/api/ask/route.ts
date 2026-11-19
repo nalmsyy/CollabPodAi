@@ -12,10 +12,16 @@ import {
  * dikirim ke klien.
  */
 
-/** Bisa diganti lewat env tanpa mengubah kode. */
-const MODEL = process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash";
+const DEFAULT_MODEL = "gemini-3.5-flash-lite";
+const FALLBACK_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"];
 const REQUEST_TIMEOUT_MS = 45_000;
 const MAX_BODY_BYTES = 128 * 1024;
+
+function getModelsToTry(): string[] {
+  const envModel = process.env.GEMINI_MODEL?.trim();
+  const list = [envModel || DEFAULT_MODEL, ...FALLBACK_MODELS];
+  return Array.from(new Set(list.filter(Boolean)));
+}
 
 function jsonResponse(
   body: unknown,
@@ -57,11 +63,16 @@ interface GeminiFailure {
   message: string;
 }
 
-function describeGeminiFailure(error: unknown): GeminiFailure {
+function describeGeminiFailure(
+  error: unknown,
+  modelName?: string,
+): GeminiFailure {
+  const model = modelName || process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL;
   if (error instanceof ApiError) {
     console.error("[api/ask] Gemini API error", {
       status: error.status,
       message: error.message,
+      model,
     });
 
     if (error.status === 400 || error.status === 401 || error.status === 403) {
@@ -84,7 +95,7 @@ function describeGeminiFailure(error: unknown): GeminiFailure {
       return {
         status: 502,
         code: "gemini_model_not_found",
-        message: `Model "${MODEL}" tidak tersedia untuk kunci API ini. Set GEMINI_MODEL ke model yang tersedia, lalu restart server.`,
+        message: `Model "${model}" tidak tersedia untuk kunci API ini. Set GEMINI_MODEL ke model yang tersedia (misal: ${DEFAULT_MODEL}), lalu restart server.`,
       };
     }
     if (error.status === 429) {
@@ -181,25 +192,49 @@ export async function POST(request: Request): Promise<Response> {
   const { question, contexts } = validation.data;
   const ai = new GoogleGenAI({ apiKey });
 
-  // Gemini 2.5 Flash mendukung thinkingBudget 0 (jawaban lebih cepat/murah).
-  // Model lain (mis. Gemini 3) memakai pengaturan default agar tidak ditolak.
-  const disableThinking = /gemini-2\.5-flash/i.test(MODEL);
+  const modelsToTry = getModelsToTry();
+  let response: Awaited<ReturnType<typeof ai.models.generateContent>> | null = null;
+  let usedModel = modelsToTry[0];
+  let lastError: unknown = null;
 
-  let response;
-  try {
-    response = await ai.models.generateContent({
-      model: MODEL,
-      contents: buildUserPrompt(question, contexts),
-      config: {
-        systemInstruction: buildSystemInstruction(),
-        temperature: 0.2,
-        maxOutputTokens: 2048,
-        ...(disableThinking ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
-        abortSignal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      },
-    });
-  } catch (error) {
-    const failure = describeGeminiFailure(error);
+  for (let i = 0; i < modelsToTry.length; i++) {
+    const currentModel = modelsToTry[i];
+    // Gemini 2.5 Flash mendukung thinkingBudget 0. Model lain memakai pengaturan default.
+    const disableThinking = /gemini-2\.5-flash$/i.test(currentModel);
+
+    try {
+      response = await ai.models.generateContent({
+        model: currentModel,
+        contents: buildUserPrompt(question, contexts),
+        config: {
+          systemInstruction: buildSystemInstruction(),
+          temperature: 0.2,
+          maxOutputTokens: 2048,
+          ...(disableThinking ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+          abortSignal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        },
+      });
+      usedModel = currentModel;
+      break;
+    } catch (error) {
+      lastError = error;
+      const isRetriableWithFallback =
+        error instanceof ApiError &&
+        (error.status === 404 || error.status === 503 || error.status === 429);
+      const hasMoreModels = i < modelsToTry.length - 1;
+
+      if (isRetriableWithFallback && hasMoreModels) {
+        console.warn(
+          `[api/ask] Model "${currentModel}" gagal (HTTP ${error.status}). Mencoba model cadangan "${modelsToTry[i + 1]}"...`,
+        );
+        continue;
+      }
+      break;
+    }
+  }
+
+  if (!response) {
+    const failure = describeGeminiFailure(lastError, usedModel);
     return errorResponse(failure.status, failure.code, failure.message);
   }
 
@@ -230,7 +265,7 @@ export async function POST(request: Request): Promise<Response> {
   return jsonResponse(
     {
       answer,
-      model: response.modelVersion || MODEL,
+      model: response.modelVersion || usedModel,
       usage: usage
         ? {
             promptTokens: usage.promptTokenCount ?? null,
