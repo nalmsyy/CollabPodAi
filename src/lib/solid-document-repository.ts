@@ -296,7 +296,8 @@ export class SolidDocumentRepository {
     this.currentUserRole =
       context.currentUserRole ??
       (context.webId === context.ownerWebId ? "Owner" : "Viewer");
-    this.fetchImpl = context.fetch;
+    this.fetchImpl = (input, init) =>
+      context.fetch(input, { cache: "no-store", ...init });
     this.idFactory = context.idFactory ?? createDocumentId;
     this.solidClient = context.client ?? null;
   }

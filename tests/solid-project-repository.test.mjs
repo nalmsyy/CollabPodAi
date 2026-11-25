@@ -342,3 +342,37 @@ test("retry pembuatan proyek saat metadata sudah ada (HTTP 412) berhasil menimpa
   const opened = await repository.openProject("prj-test-1");
   assert.equal(opened.project.name, "Riset Versi Revisi");
 });
+
+test("read-index selalu memakai cache no-store sehingga tidak membaca indeks basi setelah PATCH", async () => {
+  const pod = createFakePod();
+  await repositoryFor(pod).createProject(PROJECT_INPUT);
+
+  let staleSnapshot = pod.resources.get(INDEX_URL)?.body ?? "";
+  const cacheAwareFetch = async (input, init = {}) => {
+    const url = typeof input === "string" ? input : input.url;
+    const method = (init.method ?? "GET").toUpperCase();
+    if (url === INDEX_URL && method === "GET" && init.cache !== "no-store") {
+      return respond(url, staleSnapshot, {
+        status: 200,
+        headers: {
+          "content-type": "text/turtle",
+          link: `<${url}.acl>; rel="acl"`,
+        },
+      });
+    }
+    return pod.fetch(input, init);
+  };
+
+  const created = await new SolidPodProjectRepository({
+    podUrl: POD_URL,
+    webId: WEB_ID,
+    fetch: cacheAwareFetch,
+    idFactory: () => "prj-test-2",
+  }).createProject({
+    projectId: "prj-test-2",
+    name: "Proyek Kedua",
+    description: "Uji cache no-store.",
+  });
+
+  assert.equal(created.id, "prj-test-2");
+});

@@ -176,7 +176,10 @@ export class SolidPodProjectRepository implements IProjectRepository {
   constructor(context: SolidProjectContext) {
     this.podUrl = normalizePodUrl(context.podUrl);
     this.webId = context.webId;
-    this.fetchImpl = context.fetch;
+    // Pastikan pembacaan ulang (terutama setelah PATCH/PUT ke project-index.ttl)
+    // tidak mengambil salinan lama dari cache HTTP browser.
+    this.fetchImpl = (input, init) =>
+      context.fetch(input, { cache: "no-store", ...init });
     this.idFactory = context.idFactory ?? createProjectId;
     this.solidClient = context.client ?? null;
   }
@@ -651,18 +654,24 @@ export class SolidPodProjectRepository implements IProjectRepository {
     });
 
     await this.runStep("read-index", async () => {
-      const savedIndex = await getSolidDataset(this.indexUrl, {
-        fetch: this.fetchImpl,
-      });
-      const savedIndexThing = getThing(savedIndex, `${this.indexUrl}#index`);
-      const references = savedIndexThing
-        ? getUrlAll(savedIndexThing, `${CPD}project`)
-        : [];
-      if (!references.includes(metadataUrl)) {
-        throw new Error(
-          "Referensi proyek tidak ditemukan pada indeks setelah disimpan.",
-        );
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const savedIndex = await getSolidDataset(this.indexUrl, {
+          fetch: this.fetchImpl,
+        });
+        const savedIndexThing = getThing(savedIndex, `${this.indexUrl}#index`);
+        const references = savedIndexThing
+          ? getUrlAll(savedIndexThing, `${CPD}project`)
+          : [];
+        if (references.includes(metadataUrl)) {
+          return;
+        }
+        if (attempt === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
       }
+      throw new Error(
+        "Referensi proyek tidak ditemukan pada indeks setelah disimpan.",
+      );
     });
 
     return this.toProject(metadata);
