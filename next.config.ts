@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  serverExternalPackages: ["@solid/access-token-verifier"],
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {

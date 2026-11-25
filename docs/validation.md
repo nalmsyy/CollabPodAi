@@ -1,5 +1,15 @@
 # Hasil pemeriksaan paket
 
+## Revisi kolaborasi, 21 November 2026
+
+Build produksi dan pemeriksaan TypeScript berhasil pada Node.js 24.22.3. Sebanyak 86 tes otomatis lulus. Uji integrasi tambahan memakai dua akun dan dua Pod sementara pada Community Solid Server. Editor dapat menulis setelah menerima undangan, perubahan menjadi Viewer menghilangkan hak tulis, dan pencabutan akses menghentikan pembacaan metadata. Uji yang sama memeriksa penolakan undangan, penghapusan chat beserta pesannya, dan penghapusan proyek beserta entri indeks.
+
+Dua browser terpisah juga melewati login Solid, pembuatan proyek, pengiriman undangan, dan penerimaan setelah workspace pemilik ditutup. Penerima membuka proyek sebagai Editor dari dashboard miliknya. Tampilan landing diuji pada lebar viewport 320, 390, 768, 1024, dan 1440 piksel. Uji UI demo mencakup pembaruan peran, tampilan Viewer dan Editor, serta penghapusan chat dan proyek. Lint selesai dengan satu peringatan impor yang tidak dipakai pada tes AI lama.
+
+Lingkungan produksi pengguna, provider selain Community Solid Server, dan gateway Gemini produksi belum diuji untuk revisi ini.
+
+## Pemeriksaan versi sebelumnya
+
 Pemeriksaan pada 12 November 2026. Runtime Node.js 24.22.1.
 
 | Pemeriksaan | Hasil |

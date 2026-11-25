@@ -22,7 +22,7 @@ Untuk server Pod pengembangan lokal, jalankan `npm run dev:pod` pada terminal la
 ## Alur kerja tim
 
 1. Owner masuk dengan Solid, memilih Pod, lalu membuat atau membuka proyek.
-2. Pada **Anggota & akses**, Owner memasukkan WebID lengkap teman sebagai Editor atau Viewer. Salin tautan proyek dan bagikan sendiri kepada anggota.
+2. Pada **Anggota & akses**, Owner memasukkan WebID lengkap teman sebagai Editor atau Viewer. Teman masuk dengan WebID tersebut, membuka **Dashboard → Undangan**, lalu memilih **Terima** atau **Tolak**. Proyek yang diterima tersedia di **Dibagikan ke saya**, termasuk setelah masuk dari perangkat lain. Owner dapat menutup workspace sebelum teman menerima undangannya.
 3. Owner/Editor mengunggah PDF berisi teks atau TXT pada **Dokumen**. Batas: 10 dokumen, 5 MB per berkas. Owner meninjau dan menyetujui versi yang boleh menjadi konteks AI.
 4. Buat chat berdasarkan bagian, misalnya **Latar belakang**, **Metodologi**, dan **Hasil & pembahasan**. Chat yang terhubung dapat memberikan konteks kepada chat lain dalam proyek itu.
 5. Tinjau hasil diskusi. Pilih **Jadikan konteks bersama** untuk menyimpan keputusan yang menjadi pegangan semua chat. Jangan menyimpan usulan yang belum disepakati sebagai keputusan final.
@@ -65,6 +65,22 @@ data/tasks/{id}.ttl                satu tugas
 Setiap pesan memiliki resource sendiri. Pembuatan memakai `If-None-Match: *`; perubahan memakai strong ETag dan `If-Match`. Konflik ditampilkan, tidak ditimpa diam-diam. Pod perlu mengizinkan browser membaca header ETag melalui CORS. Akses ke `data/` dan `config/` mengikuti WAC yang sudah digunakan proyek.
 
 Sinkronisasi berlangsung setiap 15 detik saat tab aktif, saat kembali ke tab, lewat tombol muat ulang, dan sebelum permintaan AI. Ini polling, belum sinkronisasi WebSocket. Pesan dan keputusan berada di Pod pemilik proyek, bukan hanya localStorage masing-masing anggota.
+
+## Undangan, peran, dan penghapusan
+
+Owner mengelola peran, undangan tertunda, akses teman, persetujuan sumber AI, dan penghapusan proyek. Editor dapat memperbarui konten bersama serta menghapus chat. Viewer membaca konten proyek dan dapat menggunakan sesi tanya jawab pribadi. Di **Pengaturan**, penghapusan chat memerlukan konfirmasi dan penghapusan seluruh proyek memerlukan nama proyek. Keputusan dan tugas yang disimpan terpisah dari chat tetap tersedia setelah chat asal dihapus.
+
+Akses langsung dari versi lama tetap berlaku. Untuk teman yang belum menemukan proyek lama di dashboard, Owner dapat memilih **Anggota & akses → Undang ulang**. Konfirmasi ini mencabut izin lama dan mengirim undangan baru ke inbox WebID tersebut.
+
+### Menjalankan kolaborasi Solid
+
+Gunakan satu layanan Next.js dengan Node.js 24 dan penyimpanan permanen yang dapat ditulis. SQLite menyimpan WebID, peran, status undangan, nama proyek, dan referensi Pod. Dokumen, isi chat, tugas, dan keputusan tetap disimpan di Pod. Cadangkan basis data undangan bersama data aplikasi. Hosting dengan disk sementara memerlukan volume persisten.
+
+- Lokal satu komputer: jalankan `npm run dev:pod` dan `npm run dev`. Dua akun dapat memakai dua profil browser terpisah. Mode demo memperagakan penerimaan dan tampilan penerima di browser yang sama.
+- Lintas perangkat: sediakan satu origin HTTPS yang dapat dijangkau browser kedua pengguna dan server Pod. Isi `COLLABPOD_ORIGIN` dengan origin publik tersebut. Gunakan URL ini secara konsisten saat membuka aplikasi.
+- `COLLABPOD_DB` menentukan lokasi basis data, dengan nilai bawaan `.data/collaboration.sqlite`. Untuk penyedia khusus, isi `COLLABPOD_SOLID_ORIGINS` dengan origin penerbit identitas, profil WebID, dan penyimpanan Pod, dipisahkan koma.
+- Pod perlu mendukung WAC dengan `acl:agentGroup`. Server Pod membaca daftar WebID yang telah menerima undangan dari URL grup acak untuk tiap proyek dan peran. URL grup dapat dibaca oleh pihak yang mengetahuinya. Penanda publik di akar workspace hanya berisi ID pengikatan acak. Data dan konfigurasi proyek mewarisi ACL yang berbeda.
+- Untuk mengulangi uji lintas akun, jalankan `npm run build` lalu `npm run test:collaboration`. Uji ini membuat dua akun dan Pod sementara serta menghapus data ujinya ketika selesai.
 
 ## Cara konteks AI bekerja
 
