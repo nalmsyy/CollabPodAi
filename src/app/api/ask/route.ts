@@ -13,8 +13,14 @@ import {
  */
 
 const DEFAULT_MODEL = "gemini-3.5-flash-lite";
-const FALLBACK_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"];
+const FALLBACK_MODELS = [
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-flash",
+];
 const REQUEST_TIMEOUT_MS = 45_000;
+const PER_ATTEMPT_TIMEOUT_MS = 20_000;
 const MAX_BODY_BYTES = 128 * 1024;
 
 function getModelsToTry(): string[] {
@@ -106,6 +112,14 @@ function describeGeminiFailure(
           "Kuota Gemini tercapai atau terlalu banyak permintaan. Coba lagi beberapa saat lagi.",
       };
     }
+    if (error.status === 503) {
+      return {
+        status: 503,
+        code: "gemini_overloaded",
+        message:
+          "Server Gemini sedang padat sementara (HTTP 503). Tunggu beberapa detik lalu coba kirim ulang.",
+      };
+    }
     return {
       status: 502,
       code: "gemini_upstream_error",
@@ -193,12 +207,17 @@ export async function POST(request: Request): Promise<Response> {
   const ai = new GoogleGenAI({ apiKey });
 
   const modelsToTry = getModelsToTry();
+  const deadline = Date.now() + REQUEST_TIMEOUT_MS;
   let response: Awaited<ReturnType<typeof ai.models.generateContent>> | null = null;
   let usedModel = modelsToTry[0];
   let lastError: unknown = null;
 
   for (let i = 0; i < modelsToTry.length; i++) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 1000) break;
+
     const currentModel = modelsToTry[i];
+    usedModel = currentModel;
     // Gemini 2.5 Flash mendukung thinkingBudget 0. Model lain memakai pengaturan default.
     const disableThinking = /gemini-2\.5-flash$/i.test(currentModel);
 
@@ -211,10 +230,11 @@ export async function POST(request: Request): Promise<Response> {
           temperature: 0.2,
           maxOutputTokens: 2048,
           ...(disableThinking ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
-          abortSignal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          abortSignal: AbortSignal.timeout(
+            Math.min(PER_ATTEMPT_TIMEOUT_MS, remainingMs),
+          ),
         },
       });
-      usedModel = currentModel;
       break;
     } catch (error) {
       lastError = error;
@@ -227,6 +247,9 @@ export async function POST(request: Request): Promise<Response> {
         console.warn(
           `[api/ask] Model "${currentModel}" gagal (HTTP ${error.status}). Mencoba model cadangan "${modelsToTry[i + 1]}"...`,
         );
+        if (error.status === 503 || error.status === 429) {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
         continue;
       }
       break;
