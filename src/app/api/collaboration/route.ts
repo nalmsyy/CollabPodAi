@@ -18,9 +18,12 @@ const defaults = [
   "https://login.inrupt.com",
   "https://storage.inrupt.com",
   "https://id.inrupt.com",
+  "https://solidweb.org",
+  "https://solidweb.me",
   "http://localhost:3001",
   "http://127.0.0.1:3001",
 ];
+
 function permitted(raw: string) {
   const url = new URL(raw);
   if (url.username || url.password) return false;
@@ -32,13 +35,16 @@ function permitted(raw: string) {
     const trusted = new URL(origin);
     return (
       url.origin === trusted.origin ||
-      (["solidcommunity.net", "inrupt.net"].includes(trusted.hostname) &&
+      (["solidcommunity.net", "inrupt.net", "solidweb.org", "solidweb.me"].includes(
+        trusted.hostname,
+      ) &&
         url.protocol === "https:" &&
         !url.port &&
         url.hostname.endsWith("." + trusted.hostname))
     );
   });
 }
+
 async function identity(request: Request) {
   const auth = request.headers.get("authorization") || "";
   try {
@@ -52,11 +58,20 @@ async function identity(request: Request) {
         "Origin penyedia Solid belum tercantum di COLLABPOD_SOLID_ORIGINS.",
       );
     const url = new URL(request.url);
+    const proto = request.headers
+      .get("x-forwarded-proto")
+      ?.split(",")[0]
+      ?.trim();
+    const host =
+      request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() ||
+      request.headers.get("host");
+    const effectiveOrigin =
+      process.env.COLLABPOD_ORIGIN ||
+      (proto && host ? `${proto}://${host}` : url.origin);
     const result = await verify(auth, {
       header: request.headers.get("dpop") || "",
       method: "POST",
-      url: new URL(url.pathname, process.env.COLLABPOD_ORIGIN || url.origin)
-        .href,
+      url: new URL(url.pathname, effectiveOrigin).href,
     });
     return result.webid;
   } catch (err) {
@@ -67,11 +82,13 @@ async function identity(request: Request) {
     );
   }
 }
+
 function textValue(value: unknown, max = 2000) {
   if (typeof value !== "string" || !value.trim() || value.length > max)
     throw new CollaborationError(400, "Isian undangan tidak valid.");
   return value.trim();
 }
+
 function webId(value: unknown) {
   const raw = textValue(value);
   if (!/^https?:\/\//.test(raw) || /[\s<>"{}|^\\`]/.test(raw))
@@ -79,26 +96,74 @@ function webId(value: unknown) {
   new URL(raw);
   return raw;
 }
+
+/**
+ * Jika pengguna memasukkan URL Pod (mis. `https://teman.solidcommunity.net`),
+ * coba selesaikan ke WebID sebenarnya (`.../profile/card#me`) melalui profil
+ * publik Pod agar pencocokan akun dan WAC `v:hasMember` tepat.
+ */
+async function resolveSolidWebId(rawUrl: string): Promise<string> {
+  const parsed = new URL(rawUrl);
+  if (parsed.hash) return rawUrl;
+
+  const candidates = new Set<string>();
+  const basePath = parsed.pathname.endsWith("/")
+    ? parsed.pathname
+    : `${parsed.pathname}/`;
+  if (parsed.pathname === "/" || parsed.pathname === "") {
+    candidates.add(`${parsed.origin}/profile/card`);
+  } else if (parsed.pathname.endsWith("/profile/card")) {
+    candidates.add(rawUrl);
+  } else {
+    candidates.add(`${parsed.origin}${basePath}profile/card`);
+    candidates.add(`${parsed.origin}/profile/card`);
+  }
+
+  for (const profileUrl of candidates) {
+    try {
+      const res = await fetch(profileUrl, {
+        headers: { Accept: "text/turtle" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!res.ok) continue;
+      const body = await res.text();
+      const topicMatch =
+        body.match(/(?:foaf:)?primaryTopic\s+<([^>]+)>/i) ||
+        body.match(/<http:\/\/xmlns\.com\/foaf\/0\.1\/primaryTopic>\s+<([^>]+)>/i) ||
+        body.match(/<([^>]*#me)>/i);
+      if (topicMatch?.[1]) {
+        const resolved = new URL(topicMatch[1], profileUrl).href;
+        if (permitted(resolved)) return resolved;
+      }
+    } catch {
+      // Abaikan jika profil tidak dapat dijangkau, gunakan nilai asli.
+    }
+  }
+  return rawUrl;
+}
+
 function role(value: unknown) {
   if (value !== "Editor" && value !== "Viewer")
     throw new CollaborationError(400, "Pilih Editor atau Viewer.");
   return value;
 }
+
 export async function POST(request: Request) {
   try {
     const actor = await identity(request);
     const input = await request.json();
     let result: unknown = {};
-    if (input.action === "inbox") result = inbox(actor);
+    if (input.action === "inbox") result = await inbox(actor);
     else if (input.action === "accept" || input.action === "decline")
-      respond(
+      await respond(
         actor,
         textValue(input.id, 64),
         input.action === "accept" ? "accepted" : "declined",
         input.action === "accept" ? role(input.expectedRole) : undefined,
       );
     else if (input.action === "role" || input.action === "revoke")
-      manage(
+      await manage(
         actor,
         textValue(input.id, 64),
         input.action === "role" ? role(input.role) : undefined,
@@ -115,12 +180,12 @@ export async function POST(request: Request) {
       if (!/^[a-zA-Z0-9_-]+$/.test(project))
         throw new CollaborationError(400, "ID proyek tidak valid.");
       if (input.action === "roster")
-        result = teamRoster(actor, webId(input.owner), base, project);
+        result = await teamRoster(actor, webId(input.owner), base, project);
       else if (input.action === "register")
-        result = register(actor, base, project, textValue(input.title, 200));
-      else if (input.action === "close") closeTeam(actor, base, project);
+        result = await register(actor, base, project, textValue(input.title, 200));
+      else if (input.action === "close") await closeTeam(actor, base, project);
       else if (input.action === "invite") {
-        const team = teamFor(actor, base, project);
+        const team = await teamFor(actor, base, project);
         if (!team)
           throw new CollaborationError(
             403,
@@ -145,7 +210,9 @@ export async function POST(request: Request) {
               "Pod belum mengonfirmasi pengaturan undangan oleh pemilik.",
             );
         }
-        offer(team, webId(input.recipient), role(input.role));
+        const resolvedRecipient = await resolveSolidWebId(webId(input.recipient));
+        await offer(team, resolvedRecipient, role(input.role));
+        result = { recipient: resolvedRecipient };
       } else throw new CollaborationError(400, "Permintaan tidak dikenali.");
     }
     return Response.json(result, {
@@ -153,6 +220,9 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     const known = err instanceof CollaborationError;
+    if (!known) {
+      console.error("[api/collaboration] Unexpected error:", err);
+    }
     return Response.json(
       {
         error: known
