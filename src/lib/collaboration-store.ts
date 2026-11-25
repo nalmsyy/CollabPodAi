@@ -161,18 +161,20 @@ export async function teamRoster(
 ): Promise<Invitation[]> {
   const team = await teamFor(owner, pod, project);
   if (!team) return [];
-  const entries = postgresUrl()
-    ? ((await (
-        await pg()
-      )`SELECT i.id, i.team, t.owner, i.recipient, i.role, i.state, t.pod, t.project, t.title
-        FROM invites i
-        JOIN teams t ON i.team = t.id
-        WHERE i.team=${team.id} AND i.state IN ('accepted', 'pending')`) as Invitation[])
-    : ((await sqlite())
-        .prepare(
-          selectInvites + "WHERE i.team=? AND i.state IN ('accepted','pending')",
-        )
-        .all(team.id) as Invitation[]);
+  let entries: Invitation[];
+  if (postgresUrl()) {
+    const sql = await pg();
+    entries = (await sql`SELECT i.id, i.team, t.owner, i.recipient, i.role, i.state, t.pod, t.project, t.title
+      FROM invites i
+      JOIN teams t ON i.team = t.id
+      WHERE i.team=${team.id} AND i.state IN ('accepted', 'pending')`) as Invitation[];
+  } else {
+    entries = (await sqlite())
+      .prepare(
+        selectInvites + "WHERE i.team=? AND i.state IN ('accepted','pending')",
+      )
+      .all(team.id) as Invitation[];
+  }
   if (actor === owner) return entries;
   if (!entries.some((i) => i.recipient === actor && i.state === "accepted"))
     return [];
