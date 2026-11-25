@@ -139,7 +139,8 @@ export function describeSolidProjectError(error: unknown): {
 
   return {
     stepLabel: "Penyimpanan proyek ke Pod gagal.",
-    message: error instanceof Error ? error.message : "Terjadi kesalahan tak terduga.",
+    message:
+      error instanceof Error ? error.message : "Terjadi kesalahan tak terduga.",
   };
 }
 
@@ -197,9 +198,7 @@ export class SolidPodProjectRepository implements IProjectRepository {
    * - `SolidProjectAccessDeniedError`: server menolak pembacaan metadata.
    * - `SolidProjectError`: kegagalan baca lain (loopback, parsing, dll.).
    */
-  async openProject(
-    projectId: string
-  ): Promise<{
+  async openProject(projectId: string): Promise<{
     project: Project;
     metadataUrl: string;
     podUrl: string;
@@ -219,7 +218,11 @@ export class SolidPodProjectRepository implements IProjectRepository {
         throw new SolidProjectNotFoundError(projectId);
       }
       if (status === 401 || status === 403) {
-        throw new SolidProjectAccessDeniedError(projectId, this.indexUrl, status);
+        throw new SolidProjectAccessDeniedError(
+          projectId,
+          this.indexUrl,
+          status,
+        );
       }
       throw new SolidProjectError("read-index", error);
     }
@@ -231,7 +234,7 @@ export class SolidPodProjectRepository implements IProjectRepository {
 
     // Referensi dicocokkan lewat ID pada URL metadata, bukan ditebak.
     const metadataUrl = metadataUrls.find(
-      (url) => projectIdFromMetadataUrl(url) === projectId
+      (url) => projectIdFromMetadataUrl(url) === projectId,
     );
 
     if (!metadataUrl) {
@@ -327,7 +330,7 @@ export class SolidPodProjectRepository implements IProjectRepository {
       PROJECTS_SEGMENT,
       projectId,
       CONFIG_SEGMENT,
-      METADATA_FILE
+      METADATA_FILE,
     );
   }
 
@@ -357,7 +360,7 @@ export class SolidPodProjectRepository implements IProjectRepository {
       this.podUrl,
       COLLABPOD_SEGMENT,
       PROJECTS_SEGMENT,
-      projectId
+      projectId,
     );
   }
 
@@ -371,24 +374,122 @@ export class SolidPodProjectRepository implements IProjectRepository {
 
     let indexDataset;
     try {
-      indexDataset = await getSolidDataset(this.indexUrl, { fetch: this.fetchImpl });
+      indexDataset = await getSolidDataset(this.indexUrl, {
+        fetch: this.fetchImpl,
+      });
     } catch (error) {
       throw new SolidProjectError("read-index", error);
     }
 
     const indexThing = getThing(indexDataset, `${this.indexUrl}#index`);
-    const metadataUrls = indexThing ? getUrlAll(indexThing, `${CPD}project`) : [];
+    const metadataUrls = indexThing
+      ? getUrlAll(indexThing, `${CPD}project`)
+      : [];
 
+    const deleting = indexThing ? getUrlAll(indexThing, CPD + "deleting") : [];
     const projects = await Promise.all(
       metadataUrls.map(async (metadataUrl) => {
+        if (deleting.includes(metadataUrl)) {
+          const id = projectIdFromMetadataUrl(metadataUrl)!;
+          return {
+            ...this.toProject({
+              projectId: id,
+              metadataUrl,
+              name: "Penghapusan tertunda",
+              description: id,
+              ownerWebId: this.webId,
+              createdAt: new Date(0).toISOString(),
+            }),
+            deleting: true,
+          };
+        }
         const metadata = await this.readProjectMetadata(metadataUrl);
         const project = this.toProject(metadata);
         project.documentCount = await this.countDocuments(metadata.projectId);
         return project;
-      })
+      }),
     );
 
     return projects.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+  }
+
+  async deleteProject(id: string) {
+    if (!/^[a-zA-Z0-9_-]{1,120}$/.test(id))
+      throw new Error("ID proyek tidak valid.");
+    const solid = await this.solid();
+    const root = this.projectContainerUrl(id);
+    const metadata = this.metadataUrlFor(id);
+    const snapshot = await solid.getSolidDataset(this.indexUrl, {
+      fetch: this.fetchImpl,
+    });
+    const index = solid.getThing(snapshot, this.indexUrl + "#index");
+    if (
+      !index ||
+      solid.getUrl(index, CPD + "owner") !== this.webId ||
+      !solid.getUrlAll(index, CPD + "project").includes(metadata)
+    )
+      throw new Error(
+        "Hanya pemilik indeks proyek dapat menghapus proyek ini.",
+      );
+    const triple = (predicate: string) =>
+      `<${this.indexUrl}#index> <${CPD + predicate}> <${metadata}> .`;
+    const patch = async (body: string) => {
+      const res = await this.fetchImpl(this.indexUrl, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/sparql-update" },
+        body,
+      });
+      if (!res.ok)
+        throw new Error(
+          "Indeks penghapusan belum tersimpan (HTTP " +
+            res.status +
+            "). Coba lagi.",
+        );
+    };
+    if (!solid.getUrlAll(index, CPD + "deleting").includes(metadata)) {
+      if ((await this.readProjectMetadata(metadata)).ownerWebId !== this.webId)
+        throw new Error("Hanya pemilik proyek dapat menghapusnya.");
+      await patch("INSERT DATA {" + triple("deleting") + "}");
+    }
+    for (const folder of ["data/", "config/"]) {
+      if (await this.resourceExists(root + folder, "read-metadata"))
+        await this.makePrivateToOwner(root + folder);
+    }
+    const purge = async (url: string): Promise<void> => {
+      if (url.endsWith("/")) {
+        try {
+          const ds = await solid.getSolidDataset(url, {
+            fetch: this.fetchImpl,
+          });
+          const container = solid.getThing(ds, url);
+          for (const child of container
+            ? solid.getUrlAll(container, LDP_CONTAINS)
+            : []) {
+            const suffix = child.slice(url.length).replace(/\/$/, "");
+            if (
+              new URL(child).href !== child ||
+              !child.startsWith(url) ||
+              !suffix ||
+              /[/?#\\]|%2f|%5c|%2e/i.test(suffix)
+            )
+              throw new Error("Alamat isi proyek tidak valid.");
+            await purge(child);
+          }
+        } catch (e) {
+          if (isMissingResourceError(e)) return;
+          throw e;
+        }
+      }
+      const response = await this.fetchImpl(url, { method: "DELETE" });
+      if (!response.ok && ![404, 410].includes(response.status))
+        throw new Error(
+          "Penghapusan tertunda (HTTP " +
+            response.status +
+            "). Lanjutkan dari dashboard.",
+        );
+    };
+    await purge(root);
+    await patch("DELETE DATA {" + triple("project") + triple("deleting") + "}");
   }
 
   async createProject(input: CreateProjectInput): Promise<Project> {
@@ -416,13 +517,15 @@ export class SolidPodProjectRepository implements IProjectRepository {
       COLLABPOD_SEGMENT,
       PROJECTS_SEGMENT,
       projectId,
-      CONFIG_SEGMENT
+      CONFIG_SEGMENT,
     );
 
     await this.runStep("prepare-workspace", async () => {
-      await this.ensureContainer(podContainerUrl(this.podUrl, COLLABPOD_SEGMENT));
       await this.ensureContainer(
-        podContainerUrl(this.podUrl, COLLABPOD_SEGMENT, PROJECTS_SEGMENT)
+        podContainerUrl(this.podUrl, COLLABPOD_SEGMENT),
+      );
+      await this.ensureContainer(
+        podContainerUrl(this.podUrl, COLLABPOD_SEGMENT, PROJECTS_SEGMENT),
       );
       await this.ensureContainer(projectContainerUrl);
       await this.ensureContainer(configContainerUrl);
@@ -449,7 +552,7 @@ export class SolidPodProjectRepository implements IProjectRepository {
       thing = setStringNoLocale(
         thing,
         `${CPD}description`,
-        input.description.trim()
+        input.description.trim(),
       );
       thing = setUrl(thing, `${CPD}owner`, this.webId);
       thing = setDatetime(thing, `${CPD}createdAt`, new Date(createdAt));
@@ -457,13 +560,17 @@ export class SolidPodProjectRepository implements IProjectRepository {
       dataset = setThing(dataset, thing);
 
       try {
-        await saveSolidDatasetAt(metadataUrl, dataset, { fetch: this.fetchImpl });
+        await saveSolidDatasetAt(metadataUrl, dataset, {
+          fetch: this.fetchImpl,
+        });
       } catch (error) {
         if (httpStatusOf(error) === 412) {
           // Jika berkas sudah ada sebelumnya (mis. percobaan pembuatan ulang atau timeout),
           // hapus berkas lama lalu simpan ulang agar PUT idempoten berhasil tanpa penolakan If-None-Match.
           await deleteFile(metadataUrl, { fetch: this.fetchImpl });
-          await saveSolidDatasetAt(metadataUrl, dataset, { fetch: this.fetchImpl });
+          await saveSolidDatasetAt(metadataUrl, dataset, {
+            fetch: this.fetchImpl,
+          });
         } else {
           throw error;
         }
@@ -480,7 +587,9 @@ export class SolidPodProjectRepository implements IProjectRepository {
         throw new Error("Metadata proyek tidak ditemukan setelah disimpan.");
       }
       if (getStringNoLocale(savedThing, `${CPD}name`) !== input.name.trim()) {
-        throw new Error("Nama proyek pada metadata tidak sesuai setelah dibaca.");
+        throw new Error(
+          "Nama proyek pada metadata tidak sesuai setelah dibaca.",
+        );
       }
 
       return this.readProjectMetadata(metadataUrl);
@@ -488,7 +597,10 @@ export class SolidPodProjectRepository implements IProjectRepository {
 
     // Referensi ke indeks privat hanya ditambahkan setelah metadata terbaca.
     await this.runStep("write-index", async () => {
-      const indexExists = await this.resourceExists(this.indexUrl, "write-index");
+      const indexExists = await this.resourceExists(
+        this.indexUrl,
+        "write-index",
+      );
       let indexDataset = createSolidDataset();
       if (indexExists) {
         indexDataset = await getSolidDataset(this.indexUrl, {
@@ -547,16 +659,26 @@ export class SolidPodProjectRepository implements IProjectRepository {
         ? getUrlAll(savedIndexThing, `${CPD}project`)
         : [];
       if (!references.includes(metadataUrl)) {
-        throw new Error("Referensi proyek tidak ditemukan pada indeks setelah disimpan.");
+        throw new Error(
+          "Referensi proyek tidak ditemukan pada indeks setelah disimpan.",
+        );
       }
     });
 
     return this.toProject(metadata);
   }
 
-  private async readProjectMetadata(metadataUrl: string): Promise<ProjectMetadata> {
-    const { getSolidDataset, getThingAll, getStringNoLocale, getUrl, getDatetime, getUrlAll } =
-      await this.solid();
+  private async readProjectMetadata(
+    metadataUrl: string,
+  ): Promise<ProjectMetadata> {
+    const {
+      getSolidDataset,
+      getThingAll,
+      getStringNoLocale,
+      getUrl,
+      getDatetime,
+      getUrlAll,
+    } = await this.solid();
 
     let dataset;
     try {
@@ -566,13 +688,13 @@ export class SolidPodProjectRepository implements IProjectRepository {
     }
 
     const thing = getThingAll(dataset).find(
-      (candidate) => getStringNoLocale(candidate, `${CPD}name`) !== null
+      (candidate) => getStringNoLocale(candidate, `${CPD}name`) !== null,
     );
 
     if (!thing) {
       throw new SolidProjectError(
         "read-metadata",
-        new Error("Metadata proyek tidak memuat nama proyek.")
+        new Error("Metadata proyek tidak memuat nama proyek."),
       );
     }
 
@@ -584,9 +706,12 @@ export class SolidPodProjectRepository implements IProjectRepository {
       getDatetime(thing, `${CPD}createdAt`)?.toISOString() ??
       new Date(0).toISOString();
     const ownerWebId =
-      getUrl(thing, `${CPD}owner`) ??
-      getUrlAll(thing, `${CPD}owner`)[0] ??
-      this.webId;
+      getUrl(thing, `${CPD}owner`) ?? getUrlAll(thing, `${CPD}owner`)[0];
+    if (!ownerWebId)
+      throw new SolidProjectError(
+        "read-metadata",
+        new Error("Metadata proyek tidak mencantumkan pemilik."),
+      );
 
     return {
       projectId,
@@ -600,7 +725,7 @@ export class SolidPodProjectRepository implements IProjectRepository {
 
   private toProject(
     metadata: ProjectMetadata,
-    storedMembers: readonly StoredProjectMember[] = []
+    storedMembers: readonly StoredProjectMember[] = [],
   ): Project {
     const ownerName = ownerNameFromWebId(metadata.ownerWebId);
 
@@ -611,7 +736,7 @@ export class SolidPodProjectRepository implements IProjectRepository {
       currentUserRole: resolveMemberRole(
         this.webId,
         metadata.ownerWebId,
-        storedMembers
+        storedMembers,
       ),
       ownerName,
       ownerWebId: metadata.ownerWebId,
@@ -637,7 +762,7 @@ export class SolidPodProjectRepository implements IProjectRepository {
 
   private async runStep<T>(
     step: SolidProjectStep,
-    action: () => Promise<T>
+    action: () => Promise<T>,
   ): Promise<T> {
     try {
       return await action();
@@ -657,7 +782,7 @@ export class SolidPodProjectRepository implements IProjectRepository {
    */
   private async resourceExists(
     url: string,
-    step: SolidProjectStep
+    step: SolidProjectStep,
   ): Promise<boolean> {
     const { getResourceInfo } = await this.solid();
     try {
@@ -702,12 +827,22 @@ export class SolidPodProjectRepository implements IProjectRepository {
 
     if (!hasAccessibleAcl(resourceInfo)) {
       throw new Error(
-        "Server Pod tidak mengizinkan pengaturan ACL pada resource ini."
+        "Server Pod tidak mengizinkan pengaturan ACL pada resource ini.",
       );
     }
 
-    const ownerAccess = { read: true, append: true, write: true, control: true };
-    const noAccess = { read: false, append: false, write: false, control: false };
+    const ownerAccess = {
+      read: true,
+      append: true,
+      write: true,
+      control: true,
+    };
+    const noAccess = {
+      read: false,
+      append: false,
+      write: false,
+      control: false,
+    };
 
     let acl = createAcl(resourceInfo);
     acl = setAgentResourceAccess(acl, this.webId, ownerAccess);
@@ -746,7 +881,7 @@ export class SolidPodProjectRepository implements IProjectRepository {
 
     if (!hasAccessibleAcl(resourceInfo) || !hasResourceAcl(resourceInfo)) {
       throw new Error(
-        `ACL pada ${url} tidak dapat dibaca kembali setelah disimpan.`
+        `ACL pada ${url} tidak dapat dibaca kembali setelah disimpan.`,
       );
     }
 
@@ -756,7 +891,7 @@ export class SolidPodProjectRepository implements IProjectRepository {
 
     if (!hasFullControl(ownerResource) || !hasFullControl(ownerDefault)) {
       throw new Error(
-        `ACL pada ${url} tidak memberikan baca, tulis, dan kontrol penuh kepada pemilik.`
+        `ACL pada ${url} tidak memberikan baca, tulis, dan kontrol penuh kepada pemilik.`,
       );
     }
 
@@ -768,14 +903,11 @@ export class SolidPodProjectRepository implements IProjectRepository {
     }
 
     const foreignAgent =
-      firstPrincipalWithAccess(
-        getAgentResourceAccessAll(acl),
-        this.webId
-      ) ??
+      firstPrincipalWithAccess(getAgentResourceAccessAll(acl), this.webId) ??
       firstPrincipalWithAccess(getAgentDefaultAccessAll(acl), this.webId);
     if (foreignAgent) {
       throw new Error(
-        `ACL pada ${url} masih memberikan akses kepada agen lain (${foreignAgent}).`
+        `ACL pada ${url} masih memberikan akses kepada agen lain (${foreignAgent}).`,
       );
     }
 
@@ -784,7 +916,7 @@ export class SolidPodProjectRepository implements IProjectRepository {
       firstPrincipalWithAccess(getGroupDefaultAccessAll(acl));
     if (foreignGroup) {
       throw new Error(
-        `ACL pada ${url} masih memberikan akses kepada grup lain (${foreignGroup}).`
+        `ACL pada ${url} masih memberikan akses kepada grup lain (${foreignGroup}).`,
       );
     }
   }
@@ -804,19 +936,21 @@ type AccessRule = {
 };
 
 function grantsAnyAccess(access: AccessRule): boolean {
-  return Boolean(access.read || access.append || access.write || access.control);
+  return Boolean(
+    access.read || access.append || access.write || access.control,
+  );
 }
 
 function hasFullControl(access: AccessRule): boolean {
   return Boolean(
-    access.read && access.append && access.write && access.control
+    access.read && access.append && access.write && access.control,
   );
 }
 
 /** Principal pertama yang masih memiliki akses selain principal yang diizinkan. */
 function firstPrincipalWithAccess(
   accessByPrincipal: Record<string, AccessRule>,
-  allowedPrincipal?: string
+  allowedPrincipal?: string,
 ): string | null {
   for (const [principal, access] of Object.entries(accessByPrincipal)) {
     if (allowedPrincipal !== undefined && principal === allowedPrincipal) {
@@ -930,13 +1064,9 @@ export class SolidProjectAccessDeniedError extends Error {
   readonly metadataUrl: string;
   readonly serverStatus?: number;
 
-  constructor(
-    projectId: string,
-    metadataUrl: string,
-    serverStatus?: number
-  ) {
+  constructor(projectId: string, metadataUrl: string, serverStatus?: number) {
     super(
-      `Akses metadata proyek ditolak oleh server (${serverStatus ?? "tak diketahui"}).`
+      `Akses metadata proyek ditolak oleh server (${serverStatus ?? "tak diketahui"}).`,
     );
     this.name = "SolidProjectAccessDeniedError";
     this.projectId = projectId;

@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Plus,
   ShieldAlert,
@@ -10,6 +11,10 @@ import {
   X,
   Loader2,
 } from "lucide-react";
+import {
+  InvitationCenter,
+  useInvitations,
+} from "@/components/projects/invitation-center";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { MobileNav } from "@/components/layout/mobile-nav";
@@ -36,11 +41,17 @@ import {
 export default function DashboardPage() {
   return (
     <SolidSessionProvider>
-      <DashboardView />
+      <React.Suspense fallback={<p role="status">Memuat dashboard…</p>}>
+        <DashboardAccount />
+      </React.Suspense>
     </SolidSessionProvider>
   );
 }
 
+function DashboardAccount() {
+  const { status, webId } = useSolidSession();
+  return <DashboardView key={webId ?? status} />;
+}
 function DashboardView() {
   const router = useRouter();
   const { status, webId } = useSolidSession();
@@ -60,6 +71,11 @@ function DashboardView() {
   const isSolidSession = status === "signed-in";
   const isDemoSession = status === "signed-out";
 
+  const selectedTab = useSearchParams().get("tab");
+  const tab =
+    selectedTab === "shared" || selectedTab === "invites" ? selectedTab : "all";
+  const feed = useInvitations(webId ?? undefined, isDemoSession);
+  const pending = feed.items.filter((i) => i.state === "pending").length;
   const visibleFeedback = React.useMemo(() => {
     if (!feedbackMessage) return null;
     return feedbackMessage.scope === (isSolidSession ? "solid" : "demo")
@@ -124,12 +140,16 @@ function DashboardView() {
     <div className="min-h-screen flex bg-background text-foreground">
       {/* Sidebar Desktop */}
       <Sidebar
+        tab={tab}
+        pending={pending}
         className="hidden md:flex shrink-0"
         onRequestLogin={() => setLoginDialogOpen(true)}
       />
 
       {/* Drawer Mobile */}
       <MobileNav
+        tab={tab}
+        pending={pending}
         open={mobileNavOpen}
         onOpenChange={setMobileNavOpen}
         onRequestLogin={() => setLoginDialogOpen(true)}
@@ -149,13 +169,21 @@ function DashboardView() {
               <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
                 <div>
                   <h1 className="text-[36px] font-serif font-normal text-foreground leading-tight tracking-tight">
-                    Ruang untuk berkarya.
+                    {tab === "invites"
+                      ? "Undangan proyek"
+                      : tab === "shared"
+                        ? "Proyek bersama"
+                        : "Semua proyek"}
                   </h1>
                   <p className="text-[13px] text-muted-foreground mt-1">
-                    Temukan kembali pekerjaanmu, lanjutkan bersama tim.
+                    {tab === "invites"
+                      ? "Tentukan proyek yang ingin kamu ikuti."
+                      : tab === "shared"
+                        ? "Lanjutkan pekerjaan bersama tim yang mengundangmu."
+                        : "Buka ruang risetmu atau buat proyek baru."}
                   </p>
                 </div>
-                {isDemoSession && (
+                {isDemoSession && tab === "all" && (
                   <Button
                     variant="primary"
                     size="lg"
@@ -203,7 +231,7 @@ function DashboardView() {
             )}
 
             {/* Bagian Pod saya */}
-            {isSolidSession && <PodSection />}
+            {isSolidSession && tab === "all" && <PodSection />}
 
             {/* Feedback Notifikasi */}
             {visibleFeedback && (
@@ -227,7 +255,7 @@ function DashboardView() {
             )}
 
             {/* Filter & Pencarian (hanya mode demo) */}
-            {isDemoSession && (
+            {isDemoSession && tab === "all" && (
               <ProjectFilter
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
@@ -237,6 +265,22 @@ function DashboardView() {
               />
             )}
 
+            {!isRestoring && tab === "all" && pending > 0 && (
+              <Link className="invite-callout" href="/dashboard?tab=invites">
+                {pending} undangan menunggu tanggapanmu{" "}
+                <span>Periksa undangan ↗</span>
+              </Link>
+            )}
+            {!isRestoring && (
+              <InvitationCenter
+                key={tab}
+                feed={feed}
+                demo={isDemoSession}
+                webId={webId ?? undefined}
+                shared={tab !== "invites"}
+                compact={tab === "all"}
+              />
+            )}
             {/* Daftar Proyek */}
             <section aria-label="Daftar Proyek">
               {isRestoring && (
@@ -246,13 +290,13 @@ function DashboardView() {
                 </div>
               )}
 
-              {isSolidSession && (
+              {isSolidSession && tab === "all" && (
                 <SolidProjectsSection
                   onProjectCreated={handleSolidProjectCreated}
                 />
               )}
 
-              {isDemoSession && (
+              {isDemoSession && tab === "all" && (
                 <ProjectList
                   projects={filteredProjects}
                   searchQuery={searchQuery}

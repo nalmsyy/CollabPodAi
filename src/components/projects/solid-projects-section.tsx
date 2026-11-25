@@ -62,7 +62,10 @@ export function SolidProjectsSection({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground break-all">
-          Pod aktif: <code className="font-mono text-[11px] text-[#53643e] font-semibold">{selectedPodUrl}</code>
+          Pod aktif:{" "}
+          <code className="font-mono text-[11px] text-[#53643e] font-semibold">
+            {selectedPodUrl}
+          </code>
         </p>
         <Button variant="primary" onClick={() => setDialogOpen(true)}>
           <Plus className="w-4 h-4" />
@@ -95,7 +98,7 @@ interface ProjectsForPodProps {
 function ProjectsForPod({ podUrl, onCreateProject }: ProjectsForPodProps) {
   const { webId } = useSolidSession();
   const [phase, setPhase] = React.useState<"loading" | "ready" | "error">(
-    "loading"
+    "loading",
   );
   const [errorKind, setErrorKind] = React.useState<ReadErrorKind>("connection");
   const [projects, setProjects] = React.useState<Project[]>([]);
@@ -120,7 +123,7 @@ function ProjectsForPod({ podUrl, onCreateProject }: ProjectsForPodProps) {
         if (!active) return;
         setProjects([]);
         setErrorKind(
-          isSolidProjectAccessDenied(error) ? "access" : "connection"
+          isSolidProjectAccessDenied(error) ? "access" : "connection",
         );
         setPhase("error");
       }
@@ -193,9 +196,15 @@ function ProjectsForPod({ podUrl, onCreateProject }: ProjectsForPodProps) {
           Indeks proyek belum ada atau masih kosong
         </h2>
         <p className="mt-1 text-xs text-muted-foreground max-w-sm leading-relaxed">
-          Proyek yang Anda buat akan tersimpan privat di Pod ini dan muncul kembali setelah masuk ulang.
+          Proyek yang Anda buat akan tersimpan privat di Pod ini dan muncul
+          kembali setelah masuk ulang.
         </p>
-        <Button variant="primary" size="sm" className="mt-4" onClick={onCreateProject}>
+        <Button
+          variant="primary"
+          size="sm"
+          className="mt-4"
+          onClick={onCreateProject}
+        >
           <Plus className="w-4 h-4" />
           Buat proyek
         </Button>
@@ -209,13 +218,41 @@ function ProjectsForPod({ podUrl, onCreateProject }: ProjectsForPodProps) {
         {projects.length} proyek tersimpan di Pod Anda.
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {projects.map((project, index) => (
-          <ProjectCard
-            key={`${project.podUrl}-${project.id}`}
-            project={project}
-            index={index}
-          />
-        ))}
+        {projects.map((project, index) =>
+          project.deleting ? (
+            <article key={project.id} className="invite-panel p-4">
+              <h3>Penghapusan tertunda</h3>
+              <p>{project.id}</p>
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    const auth = await getSolidSessionAuth();
+                    await new SolidPodProjectRepository({
+                      podUrl,
+                      ...auth,
+                    }).deleteProject(project.id);
+                    setReloadToken((t) => t + 1);
+                  } catch (e) {
+                    window.alert(
+                      e instanceof Error
+                        ? e.message
+                        : "Gagal melanjutkan penghapusan.",
+                    );
+                  }
+                }}
+              >
+                Lanjutkan penghapusan
+              </Button>
+            </article>
+          ) : (
+            <ProjectCard
+              key={`${project.podUrl}-${project.id}`}
+              project={project}
+              index={index}
+            />
+          ),
+        )}
       </div>
     </div>
   );

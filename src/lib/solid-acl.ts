@@ -45,7 +45,10 @@ function loadSolidClient(): Promise<SolidClient> {
 /** Peran yang dapat diberikan lewat undangan; Owner tidak dapat diundang. */
 export type MemberRole = "Editor" | "Viewer";
 
-export const MEMBER_ROLES: readonly MemberRole[] = ["Editor", "Viewer"] as const;
+export const MEMBER_ROLES: readonly MemberRole[] = [
+  "Editor",
+  "Viewer",
+] as const;
 
 export interface StoredProjectMember {
   /** ID lokal untuk React; diturunkan dari WebID. */
@@ -117,7 +120,7 @@ export class SolidAclAccessDeniedError extends Error {
     super(
       `Akses ke pengaturan proyek ditolak oleh server Pod${
         status ? ` (HTTP ${status})` : ""
-      }.`
+      }.`,
     );
     this.name = "SolidAclAccessDeniedError";
     this.resourceUrl = resourceUrl;
@@ -221,7 +224,8 @@ export function validateMemberWebId(rawWebId: string): {
     return {
       ok: false,
       webId: trimmed,
-      error: "WebID harus berupa URL lengkap, mis. https://pod.example/profil/card#me.",
+      error:
+        "WebID harus berupa URL lengkap, mis. https://pod.example/profil/card#me.",
     };
   }
 
@@ -288,11 +292,12 @@ function fullOwnerAccess(): AccessRule {
   return { read: true, append: true, write: true, control: true };
 }
 
-function hasAccess(access: AccessRule | null | undefined, keys: string[]): boolean {
+function hasAccess(
+  access: AccessRule | null | undefined,
+  keys: string[],
+): boolean {
   if (!access) return false;
-  return keys.every(
-    (key) => access[key as keyof AccessRule] === true
-  );
+  return keys.every((key) => access[key as keyof AccessRule] === true);
 }
 
 /**
@@ -300,7 +305,7 @@ function hasAccess(access: AccessRule | null | undefined, keys: string[]): boole
  * Berkas yang belum ada berarti belum ada anggota yang diundang.
  */
 export async function readProjectMembers(
-  context: SolidAclContext
+  context: SolidAclContext,
 ): Promise<StoredProjectMember[]> {
   const solid = context.client ?? (await loadSolidClient());
   const url = projectMembersUrl(context.workspaceUrl);
@@ -349,7 +354,7 @@ export async function readProjectMembers(
  * memperbarui perannya.
  */
 export async function addMemberToProject(
-  input: AddMemberInput
+  input: AddMemberInput,
 ): Promise<StoredProjectMember[]> {
   const solid = input.client ?? (await loadSolidClient());
   const workspaceUrl = normalizeWorkspaceUrl(input.workspaceUrl);
@@ -361,13 +366,15 @@ export async function addMemberToProject(
   if (!MEMBER_ROLES.includes(input.role)) {
     throw new SolidAclError(
       "validate-member",
-      new Error("Peran anggota harus Editor atau Viewer.")
+      new Error("Peran anggota harus Editor atau Viewer."),
     );
   }
   if (input.ownerWebId && validation.webId === input.ownerWebId) {
     throw new SolidAclError(
       "validate-member",
-      new Error("Pemilik proyek sudah memiliki akses penuh dan tidak perlu diundang.")
+      new Error(
+        "Pemilik proyek sudah memiliki akses penuh dan tidak perlu diundang.",
+      ),
     );
   }
 
@@ -416,7 +423,7 @@ export async function addMemberToProject(
  * tidak punya akses (idempoten).
  */
 export async function removeMemberFromProject(
-  input: RemoveMemberInput
+  input: RemoveMemberInput,
 ): Promise<StoredProjectMember[]> {
   const solid = input.client ?? (await loadSolidClient());
   const workspaceUrl = normalizeWorkspaceUrl(input.workspaceUrl);
@@ -426,7 +433,10 @@ export async function removeMemberFromProject(
     throw new SolidAclError("validate-member", new Error(validation.error));
   }
 
-  const targets = [projectDataUrl(workspaceUrl), projectConfigUrl(workspaceUrl)];
+  const targets = [
+    projectDataUrl(workspaceUrl),
+    projectConfigUrl(workspaceUrl),
+  ];
 
   for (const resourceUrl of targets) {
     await revokeMemberAcl(solid, {
@@ -449,11 +459,13 @@ export async function removeMemberFromProject(
 async function loadAclFor(
   solid: SolidClient,
   resourceUrl: string,
-  fetchImpl: typeof fetch
+  fetchImpl: typeof fetch,
 ): Promise<{ info: ResourceInfoWithAcl & WithAccessibleAcl; acl: AclDataset }> {
   let info;
   try {
-    info = await solid.getResourceInfoWithAcl(resourceUrl, { fetch: fetchImpl });
+    info = await solid.getResourceInfoWithAcl(resourceUrl, {
+      fetch: fetchImpl,
+    });
   } catch (error) {
     const status = httpStatusOf(error);
     if (status === 401 || status === 403) {
@@ -466,8 +478,8 @@ async function loadAclFor(
     throw new SolidAclError(
       "read-acl",
       new Error(
-        `Server Pod tidak mengizinkan pengaturan ACL pada ${resourceUrl}.`
-      )
+        `Server Pod tidak mengizinkan pengaturan ACL pada ${resourceUrl}.`,
+      ),
     );
   }
 
@@ -490,12 +502,12 @@ interface WriteAclInput {
 
 async function writeMemberAcl(
   solid: SolidClient,
-  input: WriteAclInput
+  input: WriteAclInput,
 ): Promise<void> {
   const { info, acl: loadedAcl } = await loadAclFor(
     solid,
     input.resourceUrl,
-    input.fetch
+    input.fetch,
   );
 
   let acl = loadedAcl;
@@ -503,11 +515,15 @@ async function writeMemberAcl(
     acl = solid.setAgentResourceAccess(
       acl,
       input.ownerWebId,
-      fullOwnerAccess()
+      fullOwnerAccess(),
     );
     acl = solid.setAgentDefaultAccess(acl, input.ownerWebId, fullOwnerAccess());
   }
-  acl = solid.setAgentResourceAccess(acl, input.memberWebId, input.memberAccess);
+  acl = solid.setAgentResourceAccess(
+    acl,
+    input.memberWebId,
+    input.memberAccess,
+  );
   acl = solid.setAgentDefaultAccess(acl, input.memberWebId, input.memberAccess);
   // Publik selalu ditutup, termasuk bila fallback ACL membuka sesuatu.
   acl = solid.setPublicResourceAccess(acl, noAccess());
@@ -533,7 +549,7 @@ interface VerifyAclInput {
 /** Pastikan hak anggota dan pemilik benar-benar tersimpan di server. */
 async function verifyMemberAcl(
   solid: SolidClient,
-  input: VerifyAclInput
+  input: VerifyAclInput,
 ): Promise<void> {
   let info;
   try {
@@ -548,8 +564,8 @@ async function verifyMemberAcl(
     throw new SolidAclError(
       "verify-acl",
       new Error(
-        `ACL pada ${input.resourceUrl} tidak dapat dibaca kembali setelah disimpan.`
-      )
+        `ACL pada ${input.resourceUrl} tidak dapat dibaca kembali setelah disimpan.`,
+      ),
     );
   }
 
@@ -569,8 +585,8 @@ async function verifyMemberAcl(
     throw new SolidAclError(
       "verify-acl",
       new Error(
-        `Hak akses anggota pada ${input.resourceUrl} tidak sesuai setelah disimpan.`
-      )
+        `Hak akses anggota pada ${input.resourceUrl} tidak sesuai setelah disimpan.`,
+      ),
     );
   }
 
@@ -584,8 +600,8 @@ async function verifyMemberAcl(
       throw new SolidAclError(
         "verify-acl",
         new Error(
-          `ACL pada ${input.resourceUrl} tidak lagi memberi kendali penuh kepada pemilik.`
-        )
+          `ACL pada ${input.resourceUrl} tidak lagi memberi kendali penuh kepada pemilik.`,
+        ),
       );
     }
   }
@@ -596,7 +612,7 @@ async function verifyMemberAcl(
   ) {
     throw new SolidAclError(
       "verify-acl",
-      new Error(`ACL pada ${input.resourceUrl} masih terbuka untuk publik.`)
+      new Error(`ACL pada ${input.resourceUrl} masih terbuka untuk publik.`),
     );
   }
 }
@@ -610,7 +626,7 @@ interface RevokeAclInput {
 /** Hapus semua hak agen pada satu resource bila ACL-nya dapat diakses. */
 async function revokeMemberAcl(
   solid: SolidClient,
-  input: RevokeAclInput
+  input: RevokeAclInput,
 ): Promise<void> {
   let info;
   try {
@@ -641,7 +657,11 @@ async function revokeMemberAcl(
     return;
   }
 
-  let updated = solid.setAgentResourceAccess(acl, input.memberWebId, noAccess());
+  let updated = solid.setAgentResourceAccess(
+    acl,
+    input.memberWebId,
+    noAccess(),
+  );
   updated = solid.setAgentDefaultAccess(updated, input.memberWebId, noAccess());
 
   await putAcl(solid, {
@@ -688,7 +708,7 @@ async function putAcl(solid: SolidClient, input: PutAclInput): Promise<void> {
     }
     throw new SolidAclError(
       input.step,
-      new Error(`Server menolak penyimpanan ACL (HTTP ${response.status}).`)
+      new Error(`Server menolak penyimpanan ACL (HTTP ${response.status}).`),
     );
   }
 }
@@ -706,7 +726,7 @@ interface WriteMembersInput {
  */
 async function writeMembersDataset(
   solid: SolidClient,
-  input: WriteMembersInput
+  input: WriteMembersInput,
 ): Promise<void> {
   const url = projectMembersUrl(input.workspaceUrl);
 
@@ -732,7 +752,7 @@ async function writeMembersDataset(
 
   if (input.upsert) {
     const existing = existingThings.find(
-      (thing) => solid.getUrl(thing, `${CPD}webId`) === input.upsert?.webId
+      (thing) => solid.getUrl(thing, `${CPD}webId`) === input.upsert?.webId,
     );
     let thing =
       existing ??
@@ -773,8 +793,8 @@ async function writeMembersDataset(
     throw new SolidAclError(
       "write-members",
       new Error(
-        `Server menolak penyimpanan daftar anggota (HTTP ${response.status}).`
-      )
+        `Server menolak penyimpanan daftar anggota (HTTP ${response.status}).`,
+      ),
     );
   }
 }
@@ -782,7 +802,7 @@ async function writeMembersDataset(
 async function ensureContainer(
   solid: SolidClient,
   containerUrl: string,
-  fetchImpl: typeof fetch
+  fetchImpl: typeof fetch,
 ): Promise<void> {
   try {
     await solid.getResourceInfo(containerUrl, { fetch: fetchImpl });
@@ -813,14 +833,16 @@ async function ensureContainer(
 
 function hasAnyAccess(access: AccessRule | null | undefined): boolean {
   if (!access) return false;
-  return Boolean(access.read || access.write || access.append || access.control);
+  return Boolean(
+    access.read || access.write || access.append || access.control,
+  );
 }
 
 /** Peran Project untuk seorang pengguna berdasarkan daftar anggota. */
 export function resolveMemberRole(
   webId: string,
   ownerWebId: string,
-  members: readonly StoredProjectMember[]
+  members: readonly StoredProjectMember[],
 ): ProjectRole {
   if (webId === ownerWebId) {
     return "Owner";
@@ -866,4 +888,76 @@ function httpStatusOf(error: unknown): number | undefined {
     current = candidate.cause;
   }
   return undefined;
+}
+
+/** Install two consent-backed WAC groups. An empty group gives no project access. */
+export async function installInvitationGroups(
+  context: SolidAclContext & {
+    ownerWebId: string;
+    team: string;
+    origin: string;
+  },
+) {
+  const solid = context.client ?? (await loadSolidClient());
+  const root = normalizeWorkspaceUrl(context.workspaceUrl);
+  const data = projectDataUrl(root);
+  await ensureContainer(solid, data, context.fetch);
+  for (const resourceUrl of [data, projectConfigUrl(root)]) {
+    const { info, acl: original } = await loadAclFor(
+      solid,
+      resourceUrl,
+      context.fetch,
+    );
+    let acl = original;
+    for (const role of MEMBER_ROLES) {
+      const group = new URL(
+        "/api/groups/" + context.team + "/" + role + "#group",
+        context.origin,
+      ).href;
+      const access = accessForRole(resourceUrl === data ? role : "Viewer");
+      acl = solid.setGroupResourceAccess(acl, group, access);
+      acl = solid.setGroupDefaultAccess(acl, group, access);
+    }
+    acl = solid.setAgentResourceAccess(
+      acl,
+      context.ownerWebId,
+      fullOwnerAccess(),
+    );
+    acl = solid.setAgentDefaultAccess(
+      acl,
+      context.ownerWebId,
+      fullOwnerAccess(),
+    );
+    acl = solid.setPublicResourceAccess(acl, noAccess());
+    acl = solid.setPublicDefaultAccess(acl, noAccess());
+    await putAcl(solid, {
+      info,
+      acl,
+      resourceUrl,
+      step: "write-acl",
+      fetch: context.fetch,
+    });
+  }
+  // This nonce contains no project data. It proves the issuer controls the workspace.
+  const proof = root + "collaboration-binding.txt";
+  const written = await context.fetch(proof, {
+    method: "PUT",
+    headers: { "content-type": "text/plain" },
+    body: context.team,
+  });
+  if (!written.ok) throw new Error("Pod menolak penanda kepemilikan undangan.");
+  const { info, acl } = await loadAclFor(solid, proof, context.fetch);
+  let proofAcl = solid.setAgentResourceAccess(
+    acl,
+    context.ownerWebId,
+    fullOwnerAccess(),
+  );
+  proofAcl = solid.setPublicResourceAccess(proofAcl, accessForRole("Viewer"));
+  await putAcl(solid, {
+    info,
+    acl: proofAcl,
+    resourceUrl: proof,
+    step: "write-acl",
+    fetch: context.fetch,
+  });
 }

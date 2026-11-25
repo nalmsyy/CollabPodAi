@@ -21,7 +21,7 @@ export function ProjectCard({ project, onClick, index }: ProjectCardProps) {
       onClick(project);
       return;
     }
-    router.push(`/dashboard/detail/${encodeURIComponent(project.id)}`);
+    router.push(`/dashboard/detail/${encodeURIComponent(project.id)}${project.podUrl?"?pod="+encodeURIComponent(project.podUrl):""}`);
   }, [onClick, project, router]);
 
   const indexLabel = index !== undefined ? String(index + 1).padStart(2, "0") : null;

@@ -2,14 +2,16 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { FolderKanban, Database } from "lucide-react";
+import { dashboardNavigation } from "./dashboard-navigation";
+import { Database } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SessionAccountPanel } from "@/components/auth/session-account-panel";
 
 interface SidebarProps {
   className?: string;
   onRequestLogin: () => void;
+  tab?: string;
+  pending?: number;
 }
 
 /** Logo mark CollabPod — tiga daun miring seperti referensi */
@@ -60,24 +62,23 @@ export function BrandMark({ className }: { className?: string }) {
   );
 }
 
-export function Sidebar({ className, onRequestLogin }: SidebarProps) {
-  const pathname = usePathname();
-
-  const navItems = [
-    {
-      label: "Semua proyek",
-      href: "/dashboard",
-      icon: FolderKanban,
-      active: pathname === "/dashboard" || pathname === "/",
-    },
-  ];
+export function Sidebar({
+  className,
+  onRequestLogin,
+  tab = "all",
+  pending = 0,
+}: SidebarProps) {
+  const navItems = dashboardNavigation.map((item) => ({
+    ...item,
+    active: tab === item.tab,
+  }));
 
   return (
     <aside
       className={cn(
         "flex flex-col w-[238px] shrink-0 border-r border-border min-h-screen select-none overflow-y-auto",
         "bg-sidebar",
-        className
+        className,
       )}
     >
       {/* Brand */}
@@ -114,21 +115,27 @@ export function Sidebar({ className, onRequestLogin }: SidebarProps) {
               <Link
                 key={item.href}
                 href={item.href}
+                aria-current={item.active ? "page" : undefined}
                 className={cn(
                   "relative flex items-center gap-3 w-full px-3 py-2.5 text-sm rounded-md transition-colors",
                   item.active
                     ? "bg-[#e3e8d8] text-[#4d6037] font-[550]"
-                    : "text-[#6d785f] hover:bg-[#e9edd8] hover:text-foreground"
+                    : "text-[#6d785f] hover:bg-[#e9edd8] hover:text-foreground",
                 )}
               >
                 <Icon
                   className={cn(
                     "w-[17px] h-[17px] shrink-0",
-                    item.active ? "text-[#4d6037]" : "text-[#8a9a7a]"
+                    item.active ? "text-[#4d6037]" : "text-[#8a9a7a]",
                   )}
                   strokeWidth={item.active ? 2 : 1.75}
                 />
-                <span className="flex-1 text-left text-[13px]">{item.label}</span>
+                <span className="flex-1 text-left text-[13px]">
+                  {item.label}
+                </span>
+                {item.tab === "invites" && pending > 0 && (
+                  <small className="invite-count">{pending}</small>
+                )}
               </Link>
             );
           })}
@@ -154,7 +161,10 @@ export function Sidebar({ className, onRequestLogin }: SidebarProps) {
           </div>
         </button>
 
-        <SessionAccountPanel className="px-1 pb-1" onRequestLogin={onRequestLogin} />
+        <SessionAccountPanel
+          className="px-1 pb-1"
+          onRequestLogin={onRequestLogin}
+        />
       </div>
     </aside>
   );
