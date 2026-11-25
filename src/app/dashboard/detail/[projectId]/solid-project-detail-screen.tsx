@@ -149,7 +149,7 @@ function ProjectDetailView({
       try {
         const auth = await getSolidSessionAuth();
         // Pod dicocokkan dari profil Solid pengguna, bukan dari URL.
-        const podUrls = await fetchPodUrls(auth.webId);
+        const podUrls = podHint ? [] : await fetchPodUrls(auth.webId);
         if (cancelled) return;
 
         if (podUrls.length === 0 && !podHint) {
@@ -262,7 +262,7 @@ function ProjectDetailView({
       return (
         <FallbackState
           message="Server menolak pembacaan metadata proyek ini."
-          hint="Server Pod menolak permintaan indeks atau project.ttl. Pastikan Anda membuka proyek sebagai pemilik Pod dan izin WAC belum berubah."
+          hint="Server Pod menolak permintaan indeks atau project.ttl. Terima undangan di dashboard, lalu buka proyek dari Dibagikan ke saya."
         />
       );
     case "error":

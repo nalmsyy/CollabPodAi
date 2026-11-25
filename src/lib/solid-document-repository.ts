@@ -282,9 +282,9 @@ export function validateDocumentFile(
 
 export class SolidDocumentRepository {
   private readonly workspaceUrl: string;
-  private readonly webId: string;
+  protected readonly webId: string;
   private readonly ownerWebId: string;
-  private readonly currentUserRole: ProjectRole;
+  protected readonly currentUserRole: ProjectRole;
   private readonly fetchImpl: typeof fetch;
   private readonly idFactory: () => string;
   private readonly solidClient: SolidClient | null;
@@ -306,7 +306,7 @@ export class SolidDocumentRepository {
   }
 
   /** Owner dan Editor boleh mengunggah/menghapus; Viewer hanya membaca. */
-  private canWriteDocuments(): boolean {
+  protected canWriteDocuments(): boolean {
     return this.currentUserRole !== "Viewer";
   }
 

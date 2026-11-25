@@ -1,5 +1,7 @@
 import type { ProjectRole } from "../types/project.ts";
 import type {
+  ChatMessage,
+  ChatThread,
   CollectionName,
   WorkspaceCollection,
   WorkspaceData,
@@ -31,11 +33,18 @@ const fields = [
   "status",
   "includeInContext",
   "archived",
+  "deleting",
   "sources",
   "active",
   "demoReply",
 ] as const;
-const bools = new Set(["includeInContext", "archived", "active", "demoReply"]);
+const bools = new Set([
+  "includeInContext",
+  "archived",
+  "deleting",
+  "active",
+  "demoReply",
+]);
 
 export class WorkspaceError extends Error {
   readonly status: number;
@@ -179,6 +188,59 @@ export class SolidWorkspaceRepository implements WorkspaceRepository {
     );
     return { threads, messages, decisions, tasks } as WorkspaceData;
   }
+  async appendMessage(message: ChatMessage) {
+    await this.put("messages", message, true);
+    const threadUrl = this.url("threads", message.threadId);
+    const solid = await import("@inrupt/solid-client");
+    let closed = false;
+    try {
+      const ds = await solid.getSolidDataset(threadUrl, {
+        fetch: (input, init) =>
+          this.fetchImpl(input, { ...init, cache: "no-store" }),
+      });
+      const thread = solid.getThing(ds, threadUrl + "#item");
+      closed =
+        !thread || solid.getStringNoLocale(thread, CP + "deleting") === "true";
+    } catch (e) {
+      if (![404, 410].includes((e as { statusCode: number }).statusCode))
+        throw e;
+      closed = true;
+    }
+    if (closed) {
+      const res = await this.fetchImpl(this.url("messages", message.id), {
+        method: "DELETE",
+      });
+      if (![404, 410].includes(res.status)) checkResponse(res);
+      throw new WorkspaceError("Chat ini sudah dihapus.");
+    }
+  }
+  async deleteThread(thread: ChatThread) {
+    assertWorkspaceWrite(this.role);
+    if (!thread.deleting)
+      await this.put("threads", {
+        ...thread,
+        archived: true,
+        deleting: true,
+        includeInContext: false,
+        updatedAt: new Date().toISOString(),
+      });
+    const erase = async (
+      collection: "threads" | "messages",
+      item: { id: string; etag?: string },
+    ) => {
+      if (!item.etag || item.etag.startsWith("W/"))
+        throw new WorkspaceError("ETag kuat diperlukan untuk menghapus chat.");
+      const res = await this.fetchImpl(this.url(collection, item.id), {
+        method: "DELETE",
+        headers: { "If-Match": item.etag },
+      });
+      if (![404, 410].includes(res.status)) checkResponse(res);
+    };
+    for (const message of await this.list("messages"))
+      if (message.threadId === thread.id) await erase("messages", message);
+    const latest = (await this.list("threads")).find((t) => t.id === thread.id);
+    if (latest?.deleting) await erase("threads", latest);
+  }
   async put<K extends CollectionName>(
     collection: K,
     item: WorkspaceCollection[K],
@@ -250,10 +312,11 @@ export class SolidWorkspaceRepository implements WorkspaceRepository {
 /** Demo is explicitly browser-local; never substitutes for a failed Solid request. */
 export class DemoWorkspaceRepository implements WorkspaceRepository {
   readonly mode = "demo" as const;
-  readonly role = "Owner" as const;
+  readonly role: ProjectRole;
   private readonly key: string;
   private readonly seed: WorkspaceData;
-  constructor(key: string, seed: WorkspaceData) {
+  constructor(key: string, seed: WorkspaceData, role: ProjectRole = "Owner") {
+    this.role = role;
     this.key = key;
     this.seed = seed;
   }
@@ -263,11 +326,25 @@ export class DemoWorkspaceRepository implements WorkspaceRepository {
     localStorage.setItem(this.key, JSON.stringify(this.seed));
     return structuredClone(this.seed);
   }
+  async appendMessage(message: ChatMessage) {
+    const data = await this.read();
+    if (!data.threads.some((t) => t.id === message.threadId && !t.archived))
+      throw new WorkspaceError("Chat sudah dihapus.");
+    await this.put("messages", message, true);
+  }
+  async deleteThread(thread: ChatThread) {
+    assertWorkspaceWrite(this.role);
+    const data = await this.read();
+    data.threads = data.threads.filter((t) => t.id !== thread.id);
+    data.messages = data.messages.filter((m) => m.threadId !== thread.id);
+    localStorage.setItem(this.key, JSON.stringify(data));
+  }
   async put<K extends CollectionName>(
     collection: K,
     item: WorkspaceCollection[K],
     create = false,
   ): Promise<void> {
+    assertWorkspaceWrite(this.role);
     const data = await this.read();
     const list = data[collection] as WorkspaceCollection[K][];
     const index = list.findIndex((existing) => existing.id === item.id);

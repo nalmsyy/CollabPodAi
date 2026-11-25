@@ -27,6 +27,17 @@ export class DemoProjectRepository implements IProjectRepository {
       };
     });
   }
+  async deleteProject(id: string) {
+    const projects = await this.listProjects();
+    if (!projects.some((p) => p.id === id && p.currentUserRole === "Owner"))
+      throw new Error("Hanya Owner dapat menghapus proyek.");
+    localStorage.setItem(
+      KEY,
+      JSON.stringify(projects.filter((p) => p.id !== id)),
+    );
+    for (const prefix of ["project:", "documents:v2:", "workspace:v2:"])
+      localStorage.removeItem("collabpod:demo:" + prefix + id);
+  }
   async createProject(input: CreateProjectInput): Promise<Project> {
     const project = {
       ...demoProject(`proj-demo-${crypto.randomUUID()}`, input.name.trim()),

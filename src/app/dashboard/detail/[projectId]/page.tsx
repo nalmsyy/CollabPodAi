@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
+import { demoInvites } from "@/lib/project-team";
 import { DEMO_WEB_ID } from "@/lib/demo-workspace";
 import { demoProjectRepository } from "@/lib/project-storage";
 import type { Project } from "@/types/project";
@@ -46,7 +47,13 @@ function ProjectDetailRoute() {
   }
 
   if (searchParams.get("demo") === "1") {
-    return <DemoProjectRoute key={projectId} projectId={projectId} />;
+    return (
+      <DemoProjectRoute
+        key={projectId + searchParams.get("as")}
+        projectId={projectId}
+        actor={searchParams.get("as") || DEMO_WEB_ID}
+      />
+    );
   }
 
   return (
@@ -58,7 +65,13 @@ function ProjectDetailRoute() {
   );
 }
 
-function DemoProjectRoute({ projectId }: { projectId: string }) {
+function DemoProjectRoute({
+  projectId,
+  actor,
+}: {
+  projectId: string;
+  actor: string;
+}) {
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -68,8 +81,19 @@ function DemoProjectRoute({ projectId }: { projectId: string }) {
       .then((projects) => {
         if (!active) return;
         const found = projects.find((p) => p.id === projectId);
-        if (found) setProject(found);
-        else setError("Proyek demo tidak ditemukan di browser ini.");
+        if (found) {
+          const role =
+            actor === DEMO_WEB_ID
+              ? found.currentUserRole
+              : demoInvites().find(
+                  (i) =>
+                    i.project === projectId &&
+                    i.recipient === actor &&
+                    i.state === "accepted",
+                )?.role;
+          if (role) setProject({ ...found, currentUserRole: role });
+          else setError("Undangan belum diterima atau akses telah dicabut.");
+        } else setError("Proyek demo tidak ditemukan di browser ini.");
       })
       .catch(() => {
         if (active)
@@ -80,7 +104,7 @@ function DemoProjectRoute({ projectId }: { projectId: string }) {
     return () => {
       active = false;
     };
-  }, [projectId]);
+  }, [projectId, actor]);
   if (error)
     return (
       <div className="p-12 text-center">
@@ -95,11 +119,6 @@ function DemoProjectRoute({ projectId }: { projectId: string }) {
       </p>
     );
   return (
-    <ProjectWorkspace
-      project={project}
-      webId={DEMO_WEB_ID}
-      fetchImpl={fetch}
-      demo
-    />
+    <ProjectWorkspace project={project} webId={actor} fetchImpl={fetch} demo />
   );
 }

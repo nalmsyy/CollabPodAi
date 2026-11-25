@@ -1,4 +1,4 @@
-import type { Project } from "../types/project.ts";
+import type { Project, ProjectRole } from "../types/project.ts";
 import type { WorkspaceData } from "../types/workspace.ts";
 import type { ProjectDocument, DocumentListResult } from "../types/document.ts";
 import {
@@ -208,12 +208,16 @@ interface DemoFile {
 export class DemoDocumentRepository extends SolidDocumentRepository {
   private readonly key: string;
   private readonly seedExamples: boolean;
-  constructor(projectId: string) {
+  constructor(
+    projectId: string,
+    role: ProjectRole = "Owner",
+    actor = DEMO_WEB_ID,
+  ) {
     super({
       workspaceUrl: `https://demo.example/projects/${projectId}/`,
       ownerWebId: DEMO_WEB_ID,
-      webId: DEMO_WEB_ID,
-      currentUserRole: "Owner",
+      webId: actor,
+      currentUserRole: role,
       fetch,
     });
     this.key = `collabpod:demo:documents:v2:${projectId}`;
@@ -284,6 +288,8 @@ export class DemoDocumentRepository extends SolidDocumentRepository {
     options?: { documentId?: string },
   ): Promise<ProjectDocument> {
     const files = await this.files();
+    if (!this.canWriteDocuments())
+      throw new Error("Viewer hanya dapat membaca dokumen.");
     const validation = validateDocumentFile(file, files.length);
     if (!validation.valid) throw new Error(validation.error);
     const data = await file.arrayBuffer();
@@ -299,7 +305,7 @@ export class DemoDocumentRepository extends SolidDocumentRepository {
       mimeType,
       sizeBytes: file.size,
       uploadedAt: new Date().toISOString(),
-      uploaderWebId: DEMO_WEB_ID,
+      uploaderWebId: this.webId,
       sha256: await computeFileSha256(data),
       aiApproved: false,
       isComplete: true,
@@ -321,6 +327,8 @@ export class DemoDocumentRepository extends SolidDocumentRepository {
     document: ProjectDocument,
     approved: boolean,
   ): Promise<void> {
+    if (this.currentUserRole !== "Owner")
+      throw new Error("Hanya Owner dapat menyetujui sumber AI.");
     const files = await this.files();
     const file = files.find((f) => f.document.id === document.id);
     if (!file) throw new Error("Dokumen tidak ditemukan.");
@@ -328,6 +336,8 @@ export class DemoDocumentRepository extends SolidDocumentRepository {
     localStorage.setItem(this.key, JSON.stringify(files));
   }
   override async deleteDocument(document: ProjectDocument): Promise<void> {
+    if (!this.canWriteDocuments())
+      throw new Error("Viewer hanya dapat membaca dokumen.");
     localStorage.setItem(
       this.key,
       JSON.stringify(

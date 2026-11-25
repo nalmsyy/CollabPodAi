@@ -19,6 +19,7 @@ export interface Project {
   updatedAt: string;
   documentCount: number;
   isDemo: boolean;
+  deleting?: boolean;
   /** URL metadata proyek di Pod (hanya untuk proyek Solid). */
   metadataUrl?: string;
   /** Pod asal proyek (hanya untuk proyek Solid). */

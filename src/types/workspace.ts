@@ -35,6 +35,7 @@ export interface ChatThread extends WorkspaceEntity {
   description: string;
   includeInContext: boolean;
   archived: boolean;
+  deleting?: boolean;
 }
 export interface ChatMessage extends WorkspaceEntity {
   threadId: string;
@@ -77,6 +78,8 @@ export interface WorkspaceRepository {
   readonly mode: "solid" | "demo";
   readonly role: ProjectRole;
   read(): Promise<WorkspaceData>;
+  deleteThread(thread: ChatThread): Promise<void>;
+  appendMessage(message: ChatMessage): Promise<void>;
   put<K extends CollectionName>(
     collection: K,
     item: WorkspaceCollection[K],

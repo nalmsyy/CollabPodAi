@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Sparkles,
   Users,
+  Trash2,
   X,
 } from "lucide-react";
 import type { Project, ProjectMember } from "@/types/project";
@@ -58,7 +59,6 @@ import {
   addMemberToProject,
   removeMemberFromProject,
   readProjectMembers,
-  resolveMemberRole,
   toProjectMember,
   validateMemberWebId,
 } from "@/lib/solid-acl";
@@ -80,6 +80,18 @@ import {
   WorkspaceHeader,
   WORKSPACE_NAV,
 } from "./workspace-chrome";
+import {
+  activeMembers,
+  forgetDemoTeam,
+  roster,
+  sendInvite,
+  updateTeamTitle,
+  teamRequest,
+  transition,
+  type Invitation,
+} from "@/lib/project-team";
+import { demoProjectRepository } from "@/lib/project-storage";
+import { SolidPodProjectRepository } from "@/lib/solid-project-repository";
 import { cn } from "@/lib/utils";
 
 const STATUS: { id: TaskStatus; label: string }[] = [
@@ -151,19 +163,15 @@ export function ProjectWorkspace({
 }) {
   const router = useRouter();
   const query = useSearchParams();
-  const [project, setProject] = React.useState<Project>(() => {
-    if (demo && typeof window !== "undefined") {
-      try {
-        const saved = window.localStorage.getItem(
-          `collabpod:demo:project:${initialProject.id}`,
-        );
-        if (saved) return JSON.parse(saved);
-      } catch {
-        // Abaikan kesalahan pembacaan cache demo
-      }
-    }
-    return initialProject;
-  });
+  const [project, setProject] = React.useState<Project>(initialProject);
+  const [invites, setInvites] = React.useState<Invitation[]>([]);
+  const [deletion, setDeletion] = React.useState<"project" | ChatThread | null>(
+    null,
+  );
+  const [confirmName, setConfirmName] = React.useState("");
+  const [legacyInvite, setLegacyInvite] = React.useState<ProjectMember | null>(
+    null,
+  );
   const [privateMessages, setPrivateMessages] = React.useState<ChatMessage[]>(
     [],
   );
@@ -216,7 +224,11 @@ export function ProjectWorkspace({
   const documentRepo = React.useMemo(
     () =>
       demo
-        ? new DemoDocumentRepository(initialProject.id)
+        ? new DemoDocumentRepository(
+            initialProject.id,
+            project.currentUserRole,
+            webId,
+          )
         : new SolidDocumentRepository({
             workspaceUrl,
             webId,
@@ -240,6 +252,7 @@ export function ProjectWorkspace({
         ? new DemoWorkspaceRepository(
             `collabpod:demo:workspace:v2:${initialProject.id}`,
             demoWorkspaceSeed(initialProject.id),
+            project.currentUserRole,
           )
         : new SolidWorkspaceRepository({
             workspaceUrl,
@@ -305,7 +318,7 @@ export function ProjectWorkspace({
       const generation = ++loadGeneration.current;
       if (!quiet) setSyncing(true);
       try {
-        const [next, docs, members] = await Promise.all([
+        const [next, docs, members, invitations] = await Promise.all([
           repository.read(),
           documentRepo.listDocuments(),
           demo
@@ -316,17 +329,35 @@ export function ProjectWorkspace({
                 fetch: (input, init) =>
                   fetchImpl(input, { ...init, cache: "no-store" }),
               }),
+          roster(initialProject, fetchImpl),
         ]);
         if (!alive.current || generation !== loadGeneration.current) return;
-        if (members)
-          setProject((p) => ({
-            ...p,
-            currentUserRole: resolveMemberRole(webId, p.ownerWebId, members),
-            members: [
-              p.members.find((m) => m.role === "Owner")!,
+        const base: Project = demo
+          ? (JSON.parse(
+              localStorage.getItem(
+                "collabpod:demo:project:" + initialProject.id,
+              ) || "null",
+            ) ?? initialProject)
+          : initialProject;
+        const legacy = members
+          ? [
+              base.members.find((m) => m.role === "Owner")!,
               ...members.map(toProjectMember),
-            ],
-          }));
+            ]
+          : base.members;
+        const combined = activeMembers(legacy, invitations);
+        const current = combined.find((m) => m.webId === webId);
+        if (!current)
+          throw Object.assign(new Error("Akses proyek telah dicabut."), {
+            status: 403,
+          });
+        setInvites(invitations);
+        setProject((p) => ({
+          ...p,
+          ...(demo ? { name: base.name, description: base.description } : {}),
+          currentUserRole: current.role,
+          members: combined,
+        }));
         setData(next);
         setDocuments(docs.documents);
         setIncomplete(docs.incompleteDocuments);
@@ -347,7 +378,7 @@ export function ProjectWorkspace({
       fail,
       demo,
       workspaceUrl,
-      initialProject.ownerWebId,
+      initialProject,
       webId,
       fetchImpl,
     ],
@@ -429,116 +460,107 @@ export function ProjectWorkspace({
   async function saveModal(event: React.FormEvent) {
     event.preventDefault();
     if (!modal || !draft.title.trim()) return;
-    await action(async () => {
-      const now = new Date().toISOString();
-      if (modal.kind === "chat") {
-        const thread: ChatThread = {
-          ...(modal.thread ?? entityMeta("chat", webId)),
-          title: draft.title.trim(),
-          description: draft.body.trim(),
-          includeInContext: draft.include,
-          archived: false,
-          updatedAt: now,
-        };
-        await repository.put("threads", thread, !modal.thread);
-        setModal(null);
-        navigate("chats", thread.id);
-      } else if (modal.kind === "decision") {
-        const decision: SharedDecision = {
-          ...(modal.decision ?? entityMeta("decision", webId)),
-          title: draft.title.trim(),
-          content: draft.body.trim(),
-          active: true,
-          threadId: modal.message?.threadId ?? modal.decision?.threadId,
-          messageId: modal.message?.id ?? modal.decision?.messageId,
-          sources: modal.message?.sources ?? modal.decision?.sources ?? [],
-          updatedAt: now,
-        };
-        await repository.put("decisions", decision, !modal.decision);
-        setModal(null);
-      } else if (modal.kind === "task") {
-        const task: ProjectTask = {
-          ...(modal.task ?? entityMeta("task", webId)),
-          title: draft.title.trim(),
-          description: draft.body.trim(),
-          status: modal.task?.status ?? modal.status ?? "todo",
-          assignee: draft.assignee,
-          threadId: modal.message?.threadId ?? modal.task?.threadId,
-          messageId: modal.message?.id ?? modal.task?.messageId,
-          updatedAt: now,
-        };
-        await repository.put("tasks", task, !modal.task);
-        setModal(null);
-      } else if (modal.kind === "member") {
-        if (project.members.length >= 5)
-          throw new Error("Maksimal 5 anggota untuk workspace ini.");
-        const validation = validateMemberWebId(draft.title);
-        if (!validation.ok) throw new Error(validation.error);
-        if (project.members.some((m) => m.webId === validation.webId))
-          throw new Error("WebID ini sudah menjadi anggota.");
-        if (demo) {
-          const next = {
-            ...project,
-            members: [
-              ...project.members,
-              {
-                id: crypto.randomUUID(),
-                name: draft.title.includes("/")
-                  ? new URL(draft.title).hostname
-                  : draft.title,
-                webId: validation.webId,
-                role: draft.role as "Editor" | "Viewer",
-              },
-            ],
+    await action(
+      async () => {
+        const now = new Date().toISOString();
+        if (modal.kind === "chat") {
+          const thread: ChatThread = {
+            ...(modal.thread ?? entityMeta("chat", webId)),
+            title: draft.title.trim(),
+            description: draft.body.trim(),
+            includeInContext: draft.include,
+            archived: false,
+            updatedAt: now,
           };
-          setProject(next);
-          localStorage.setItem(
-            `collabpod:demo:project:${project.id}`,
-            JSON.stringify(next),
-          );
-        } else {
-          const members = await addMemberToProject({
-            workspaceUrl,
-            ownerWebId: project.ownerWebId,
-            webId: validation.webId,
-            role: draft.role as "Editor" | "Viewer",
-            fetch: fetchImpl,
-          });
-          setProject((p) => ({
-            ...p,
-            members: [
-              p.members.find((m) => m.role === "Owner")!,
-              ...members.map(toProjectMember),
-            ],
-          }));
-        }
-        setModal(null);
-      } else if (modal.kind === "project") {
-        if (!isOwner) throw new Error("Hanya Owner dapat mengubah proyek.");
-        if (!demo)
-          await updateProjectIdentity(
+          await repository.put("threads", thread, !modal.thread);
+          setModal(null);
+          navigate("chats", thread.id);
+        } else if (modal.kind === "decision") {
+          const decision: SharedDecision = {
+            ...(modal.decision ?? entityMeta("decision", webId)),
+            title: draft.title.trim(),
+            content: draft.body.trim(),
+            active: true,
+            threadId: modal.message?.threadId ?? modal.decision?.threadId,
+            messageId: modal.message?.id ?? modal.decision?.messageId,
+            sources: modal.message?.sources ?? modal.decision?.sources ?? [],
+            updatedAt: now,
+          };
+          await repository.put("decisions", decision, !modal.decision);
+          setModal(null);
+        } else if (modal.kind === "task") {
+          const task: ProjectTask = {
+            ...(modal.task ?? entityMeta("task", webId)),
+            title: draft.title.trim(),
+            description: draft.body.trim(),
+            status: modal.task?.status ?? modal.status ?? "todo",
+            assignee: draft.assignee,
+            threadId: modal.message?.threadId ?? modal.task?.threadId,
+            messageId: modal.message?.id ?? modal.task?.messageId,
+            updatedAt: now,
+          };
+          await repository.put("tasks", task, !modal.task);
+          setModal(null);
+        } else if (modal.kind === "member") {
+          if (
+            project.members.length +
+              invites.filter((i) => i.state === "pending").length >=
+            5
+          )
+            throw new Error("Maksimal 5 anggota untuk workspace ini.");
+          const validation = validateMemberWebId(draft.title);
+          if (!validation.ok) throw new Error(validation.error);
+          if (project.members.some((m) => m.webId === validation.webId))
+            throw new Error("WebID ini sudah menjadi anggota.");
+          await sendInvite(
             project,
-            draft.title.trim(),
-            draft.body.trim(),
+            validation.webId,
+            draft.role as "Editor" | "Viewer",
             fetchImpl,
           );
-        const next = {
-          ...project,
-          name: draft.title.trim(),
-          description: draft.body.trim(),
-        };
-        setProject(next);
-        if (demo)
-          localStorage.setItem(
-            `collabpod:demo:project:${project.id}`,
-            JSON.stringify(next),
-          );
-        setModal(null);
-      }
-    }, "Perubahan tersimpan.");
+          setModal(null);
+        } else if (modal.kind === "project") {
+          if (!isOwner) throw new Error("Hanya Owner dapat mengubah proyek.");
+          if (!demo)
+            await updateProjectIdentity(
+              project,
+              draft.title.trim(),
+              draft.body.trim(),
+              fetchImpl,
+            );
+          const next = {
+            ...project,
+            name: draft.title.trim(),
+            description: draft.body.trim(),
+          };
+          if (invites.length) await updateTeamTitle(next, fetchImpl);
+          setProject(next);
+          if (demo)
+            localStorage.setItem(
+              `collabpod:demo:project:${project.id}`,
+              JSON.stringify({
+                ...next,
+                members: next.members.filter(
+                  (m) => !invites.some((i) => i.id === m.id),
+                ),
+              }),
+            );
+          setModal(null);
+        }
+      },
+      modal.kind === "member"
+        ? "Undangan dikirim. Temanmu dapat menanggapinya di dashboard."
+        : "Perubahan tersimpan.",
+    );
   }
   async function changeRole(member: ProjectMember, role: "Editor" | "Viewer") {
     await action(async () => {
+      if (!isOwner) throw new Error("Akses pemilik diperlukan.");
+      const entry = invites.find((i) => i.recipient === member.webId);
+      if (entry) {
+        await transition(fetchImpl, demo, webId, entry, "role", role);
+        return;
+      }
       if (demo) {
         const next = {
           ...project,
@@ -549,7 +571,12 @@ export function ProjectWorkspace({
         setProject(next);
         localStorage.setItem(
           `collabpod:demo:project:${project.id}`,
-          JSON.stringify(next),
+          JSON.stringify({
+            ...next,
+            members: next.members.filter(
+              (m) => !invites.some((i) => i.id === m.id),
+            ),
+          }),
         );
       } else {
         const members = await addMemberToProject({
@@ -572,6 +599,13 @@ export function ProjectWorkspace({
   async function removeMember() {
     if (!revoke) return;
     await action(async () => {
+      if (!isOwner) throw new Error("Akses pemilik diperlukan.");
+      const entry = invites.find((i) => i.recipient === revoke.webId);
+      if (entry) {
+        await transition(fetchImpl, demo, webId, entry, "revoke");
+        setRevoke(null);
+        return;
+      }
       if (!demo)
         await removeMemberFromProject({
           workspaceUrl,
@@ -587,7 +621,12 @@ export function ProjectWorkspace({
       if (demo)
         localStorage.setItem(
           `collabpod:demo:project:${project.id}`,
-          JSON.stringify(next),
+          JSON.stringify({
+            ...next,
+            members: next.members.filter(
+              (m) => !invites.some((i) => i.id === m.id),
+            ),
+          }),
         );
       setRevoke(null);
     }, "Akses anggota dicabut.");
@@ -651,7 +690,7 @@ export function ProjectWorkspace({
         content: text,
         sources: [],
       };
-      if (canWrite) await repository.put("messages", userMessage, true);
+      if (canWrite) await repository.appendMessage(userMessage);
       setQuestion("");
       if (canWrite) {
         setData({ ...fresh, messages: [...fresh.messages, userMessage] });
@@ -698,7 +737,7 @@ export function ProjectWorkspace({
       };
       // Demo replies never become factual cross-chat evidence. Human messages still connect rooms.
       if (canWrite) {
-        await repository.put("messages", assistant, true);
+        await repository.appendMessage(assistant);
         await reload();
       } else setPrivateMessages((p) => [...p, assistant]);
       if (result.skipped.length)
@@ -1517,15 +1556,16 @@ export function ProjectWorkspace({
                               {task.description && (
                                 <p>{task.description.slice(0, 140)}</p>
                               )}
-                              {task.threadId && (
-                                <Link
-                                  className="workspace-task-origin"
-                                  href={href("chats", task.threadId)}
-                                >
-                                  <MessageSquare size={12} />
-                                  Dari percakapan ↗
-                                </Link>
-                              )}
+                              {threads.some((t) => t.id === task.threadId) &&
+                                task.threadId && (
+                                  <Link
+                                    className="workspace-task-origin"
+                                    href={href("chats", task.threadId)}
+                                  >
+                                    <MessageSquare size={12} />
+                                    Dari percakapan ↗
+                                  </Link>
+                                )}
                               <div className="workspace-task-assignee">
                                 <Avatar
                                   name={shortName(
@@ -1618,6 +1658,18 @@ export function ProjectWorkspace({
                               <option>Editor</option>
                               <option>Viewer</option>
                             </select>
+                            {!demo &&
+                              !invites.some(
+                                (i) => i.recipient === member.webId,
+                              ) && (
+                                <Button
+                                  variant="outline"
+                                  disabled={busy}
+                                  onClick={() => setLegacyInvite(member)}
+                                >
+                                  Undang ulang
+                                </Button>
+                              )}
                             <button
                               className="workspace-remove"
                               aria-label={`Cabut akses ${member.name}`}
@@ -1630,6 +1682,57 @@ export function ProjectWorkspace({
                       </article>
                     ))}
                   </div>
+                  {isOwner && invites.some((i) => i.state === "pending") && (
+                    <section className="workspace-settings-card">
+                      <h2>Undangan menunggu</h2>
+                      {invites
+                        .filter((i) => i.state === "pending")
+                        .map((i) => (
+                          <div key={i.id} className="workspace-setting-row">
+                            <div>
+                              <strong>{i.recipient}</strong>
+                              <p>Menunggu tanggapan</p>
+                            </div>
+                            <select
+                              aria-label={"Peran undangan " + i.recipient}
+                              disabled={busy}
+                              value={i.role}
+                              onChange={(e) =>
+                                void action(
+                                  () =>
+                                    transition(
+                                      fetchImpl,
+                                      demo,
+                                      webId,
+                                      i,
+                                      "role",
+                                      e.target.value as "Editor" | "Viewer",
+                                    ),
+                                  "Peran undangan diperbarui.",
+                                )
+                              }
+                            >
+                              <option>Viewer</option>
+                              <option>Editor</option>
+                            </select>
+                            <Button
+                              variant="outline"
+                              disabled={busy}
+                              onClick={() =>
+                                setRevoke({
+                                  id: i.id,
+                                  name: i.recipient,
+                                  webId: i.recipient,
+                                  role: i.role,
+                                })
+                              }
+                            >
+                              Batalkan
+                            </Button>
+                          </div>
+                        ))}
+                    </section>
+                  )}
                   <div className="workspace-role-grid">
                     {[
                       [
@@ -1656,8 +1759,8 @@ export function ProjectWorkspace({
                     <div className="workspace-settings-card">
                       <h2>Tautan proyek untuk anggota</h2>
                       <p>
-                        Tautan menunjuk proyek. Akses tetap memerlukan WebID
-                        yang diberi izin Owner.
+                        Teman dapat membuka tautan ini setelah menerima undangan
+                        dengan WebID yang sesuai.
                       </p>
                       <Button
                         variant="outline"
@@ -1772,6 +1875,66 @@ export function ProjectWorkspace({
                       Muat ulang sekarang
                     </Button>
                   </section>
+                  {canWrite && (
+                    <section className="workspace-settings-card">
+                      <h2>Hapus chat</h2>
+                      <p>
+                        Pesan dalam chat ikut dihapus. Tugas dan keputusan yang
+                        sudah disimpan terpisah tetap tersedia.
+                      </p>
+                      {data.threads.length === 0 ? (
+                        <p>Belum ada chat.</p>
+                      ) : (
+                        data.threads
+                          .filter((t) => !t.archived || t.deleting)
+                          .map((t) => (
+                            <div className="workspace-setting-row" key={t.id}>
+                              <strong>{t.title}</strong>
+                              <Button
+                                variant="outline"
+                                disabled={busy}
+                                onClick={() => setDeletion(t)}
+                              >
+                                <Trash2 size={15} />
+                                {t.deleting
+                                  ? "Lanjutkan penghapusan"
+                                  : "Hapus chat"}
+                              </Button>
+                            </div>
+                          ))
+                      )}
+                    </section>
+                  )}
+                  {isOwner && (
+                    <section className="workspace-settings-card">
+                      <h2>Akses teman</h2>
+                      <p>
+                        Ubah peran, batalkan undangan, atau keluarkan anggota
+                        dari proyek ini.
+                      </p>
+                      <Link href={href("members")} className="team-link">
+                        Kelola anggota <ArrowUpRight size={15} />
+                      </Link>
+                    </section>
+                  )}
+                  {isOwner && (
+                    <section className="workspace-settings-card">
+                      <h2>Hapus proyek</h2>
+                      <p>
+                        Dokumen, chat, tugas, dan akses seluruh anggota proyek
+                        ini akan dihapus.
+                      </p>
+                      <Button
+                        variant="destructive"
+                        onClick={() => {
+                          setConfirmName("");
+                          setDeletion("project");
+                        }}
+                      >
+                        Hapus proyek
+                      </Button>
+                    </section>
+                  )}
                   {decisions.length > 0 && (
                     <section className="workspace-settings-card">
                       <h2>Keputusan aktif</h2>
@@ -1873,15 +2036,16 @@ export function ProjectWorkspace({
               Buka dokumen
             </Button>
           )}
-          {previewSource?.threadId && (
-            <Link
-              href={href("chats", previewSource.threadId)}
-              onClick={() => setPreviewSource(null)}
-              className="text-primary"
-            >
-              Buka chat asal ↗
-            </Link>
-          )}
+          {previewSource?.threadId &&
+            threads.some((t) => t.id === previewSource.threadId) && (
+              <Link
+                href={href("chats", previewSource.threadId)}
+                onClick={() => setPreviewSource(null)}
+                className="text-primary"
+              >
+                Buka chat asal ↗
+              </Link>
+            )}
         </DialogContent>
       </Dialog>
       <Dialog
@@ -1900,7 +2064,7 @@ export function ProjectWorkspace({
                   : modal?.kind === "task"
                     ? "Dari ide menjadi tugas."
                     : modal?.kind === "member"
-                      ? "Berkarya bersama."
+                      ? "Undang teman ke proyek"
                       : "Identitas proyek."}
             </DialogTitle>
             <DialogDescription>
@@ -1911,7 +2075,7 @@ export function ProjectWorkspace({
                   : modal?.kind === "task"
                     ? "Tinjau tugas dan tentukan siapa yang mengerjakannya."
                     : modal?.kind === "member"
-                      ? "Masukkan WebID lengkap anggota. Izin mengikuti peran yang kamu pilih."
+                      ? "Masukkan WebID lengkap teman. Akses dimulai ketika undangan diterima di dashboard."
                       : "Perbarui nama dan tujuan ruang kerja."}
             </DialogDescription>
           </DialogHeader>
@@ -2034,7 +2198,12 @@ export function ProjectWorkspace({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Cabut akses {revoke?.name}?</DialogTitle>
+            <DialogTitle>
+              {invites.some((i) => i.id === revoke?.id && i.state === "pending")
+                ? "Batalkan undangan"
+                : "Cabut akses"}{" "}
+              {revoke?.name}?
+            </DialogTitle>
             <DialogDescription>
               Anggota tidak dapat mengambil data proyek pada permintaan
               berikutnya. Salinan yang sudah diunduh tetap berada pada anggota.
@@ -2049,7 +2218,171 @@ export function ProjectWorkspace({
               onClick={() => void removeMember()}
               disabled={busy}
             >
-              Cabut akses
+              {invites.some((i) => i.id === revoke?.id && i.state === "pending")
+                ? "Batalkan undangan"
+                : "Cabut akses"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!legacyInvite}
+        onOpenChange={(open) => {
+          if (!open && !busy) setLegacyInvite(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Undang ulang {legacyInvite?.name}?</DialogTitle>
+            <DialogDescription>
+              Akses lama akan dicabut. Temanmu akan menerima undangan di
+              dashboard dan dapat bergabung kembali sebagai {legacyInvite?.role}
+              .
+            </DialogDescription>
+          </DialogHeader>
+          {error && <p role="alert">{error}</p>}
+          <div className="workspace-form-actions">
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => setLegacyInvite(null)}
+            >
+              Batal
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={() =>
+                void action(async () => {
+                  if (
+                    !legacyInvite?.webId ||
+                    legacyInvite.role === "Owner" ||
+                    !isOwner ||
+                    demo
+                  )
+                    return;
+                  const member = legacyInvite;
+                  await removeMemberFromProject({
+                    workspaceUrl,
+                    ownerWebId: project.ownerWebId,
+                    webId: legacyInvite.webId,
+                    fetch: fetchImpl,
+                  });
+                  setLegacyInvite(null);
+                  try {
+                    await sendInvite(
+                      project,
+                      member.webId!,
+                      member.role as "Viewer" | "Editor",
+                      fetchImpl,
+                    );
+                  } catch (e) {
+                    await reload();
+                    throw new Error(
+                      "Akses lama telah dicabut. Kirim lagi lewat Undang anggota. " +
+                        (e instanceof Error ? e.message : ""),
+                    );
+                  }
+                }, "Undangan baru dikirim ke dashboard teman.")
+              }
+            >
+              Kirim undangan baru
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!deletion}
+        onOpenChange={(open) => {
+          if (!open && !busy) setDeletion(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {deletion === "project" ? "Hapus proyek ini?" : "Hapus chat ini?"}
+            </DialogTitle>
+            <DialogDescription>
+              {deletion === "project"
+                ? "Seluruh isi proyek akan dihapus permanen. Ketik nama proyek untuk mengonfirmasi."
+                : "Semua pesan dalam chat ini akan dihapus permanen."}
+            </DialogDescription>
+          </DialogHeader>
+          <strong>
+            {deletion === "project" ? project.name : deletion?.title}
+          </strong>
+          {deletion === "project" && (
+            <Input
+              aria-label="Nama proyek untuk konfirmasi"
+              value={confirmName}
+              onChange={(e) => setConfirmName(e.target.value)}
+            />
+          )}
+          {error && <p role="alert">{error}</p>}
+          <div className="workspace-form-actions">
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => setDeletion(null)}
+            >
+              Batal
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={
+                busy || (deletion === "project" && confirmName !== project.name)
+              }
+              onClick={async () => {
+                if (!deletion || busy) return;
+                if (deletion === "project") {
+                  if (!isOwner || confirmName !== project.name) return;
+                  setBusy(true);
+                  setError("");
+                  try {
+                    if (demo) {
+                      await demoProjectRepository.deleteProject(project.id);
+                      forgetDemoTeam(project.id);
+                    } else {
+                      if (
+                        invites.length ||
+                        (
+                          await fetchImpl(
+                            workspaceUrl + "collaboration-binding.txt",
+                            { method: "HEAD" },
+                          )
+                        ).ok
+                      )
+                        await teamRequest(fetchImpl, {
+                          action: "close",
+                          pod: project.podUrl,
+                          project: project.id,
+                        });
+                      await new SolidPodProjectRepository({
+                        podUrl: project.podUrl!,
+                        webId,
+                        fetch: fetchImpl,
+                      }).deleteProject(project.id);
+                    }
+                    clearRetrievalCache();
+                    router.replace("/dashboard");
+                  } catch (e) {
+                    fail(e);
+                    setBusy(false);
+                  }
+                } else if (canWrite) {
+                  const thread = deletion;
+                  await action(async () => {
+                    await repository.deleteThread(thread);
+                    setPrivateMessages((p) =>
+                      p.filter((m) => m.threadId !== thread.id),
+                    );
+                    setDeletion(null);
+                    clearRetrievalCache();
+                    if (chatId === thread.id) navigate("chats");
+                  }, "Chat dan pesannya dihapus.");
+                }
+              }}
+            >
+              {busy ? "Menghapus…" : "Ya, hapus"}
             </Button>
           </div>
         </DialogContent>

@@ -61,7 +61,14 @@ export function WorkspaceChrome(props: ChromeProps) {
         <BookOpen size={18} />
         <span>
           <strong>Ruang riset {demo ? "Yuhu" : project.ownerName}</strong>
-          <small>{demo ? "Workspace demo" : "Workspace bersama"}</small>
+          <small>
+            {project.currentUserRole} ·{" "}
+            {project.currentUserRole === "Owner"
+              ? "Kelola proyek"
+              : project.currentUserRole === "Editor"
+                ? "Edit bersama"
+                : "Baca saja"}
+          </small>
         </span>
         <ChevronDown size={14} />
       </Link>
@@ -147,7 +154,7 @@ export function WorkspaceChrome(props: ChromeProps) {
           <div className="workspace-account">
             <span className="workspace-avatar">Y</span>
             <div>
-              Yuhu<small>Akun demo · {project.currentUserRole}</small>
+              Profil demo<small>{project.currentUserRole}</small>
             </div>
           </div>
         ) : (
