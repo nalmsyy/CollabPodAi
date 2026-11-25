@@ -2075,13 +2075,13 @@ export function ProjectWorkspace({
                   : modal?.kind === "task"
                     ? "Tinjau tugas dan tentukan siapa yang mengerjakannya."
                     : modal?.kind === "member"
-                      ? "Masukkan WebID lengkap teman. Akses dimulai ketika undangan diterima di dashboard."
+                      ? "Masukkan URL Pod atau WebID lengkap teman. Akses dimulai ketika undangan diterima di dashboard."
                       : "Perbarui nama dan tujuan ruang kerja."}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={saveModal} className="workspace-form">
             <label htmlFor="workspace-draft-title">
-              {modal?.kind === "member" ? "WebID anggota" : "Nama"}
+              {modal?.kind === "member" ? "WebID atau URL Pod anggota" : "Nama"}
               <Input
                 id="workspace-draft-title"
                 value={draft.title}
@@ -2092,7 +2092,7 @@ export function ProjectWorkspace({
                 maxLength={modal?.kind === "member" ? 500 : 120}
                 placeholder={
                   modal?.kind === "member"
-                    ? "https://nama.solidcommunity.net/profile/card#me"
+                    ? "https://nama.solidcommunity.net atau .../profile/card#me"
                     : "Misalnya: Metodologi penelitian"
                 }
                 autoFocus
