@@ -27,6 +27,8 @@ test("collaboration-store siklus lengkap register -> offer -> accept -> role -> 
   assert.equal(team.verified, 0);
 
   await store.offer(team, guest, "Editor");
+  assert.equal((await store.teamRoster(owner, owner, pod, "prj-1")).length, 1);
+  assert.equal((await store.teamRoster(guest, owner, pod, "prj-1")).length, 0);
   const guestInbox = await store.inbox(guest);
   assert.equal(guestInbox.length, 1);
   assert.equal(guestInbox[0].state, "pending");
@@ -34,6 +36,7 @@ test("collaboration-store siklus lengkap register -> offer -> accept -> role -> 
 
   await store.respond(guest, guestInbox[0].id, "accepted", "Editor");
   assert.deepEqual(await store.groupMembers(team.id, "Editor"), [guest]);
+  assert.equal((await store.teamRoster(guest, owner, pod, "prj-1")).length, 1);
 
   await store.manage(owner, guestInbox[0].id, "Viewer");
   assert.deepEqual(await store.groupMembers(team.id, "Editor"), []);

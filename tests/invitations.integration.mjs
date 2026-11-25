@@ -147,6 +147,14 @@ assert.equal(
 );
 assert.equal((await request(guest, { action: "inbox" }))[0].state, "accepted");
 assert.equal(
+  (await request(owner, { action: "roster", owner: owner.webId, ...scope })).length,
+  1,
+);
+assert.equal(
+  (await request(guest, { action: "roster", owner: owner.webId, ...scope })).length,
+  1,
+);
+assert.equal(
   (
     await guest.fetch(root + "config/guest-write.txt", {
       method: "PUT",
